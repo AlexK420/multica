@@ -87,6 +87,7 @@
     "table_columns_one": "{{count}} colonne",
     "table_columns_other": "{{count}} colonnes",
     "address": "Adresse",
+    "address_hint": "?paramètres",
     "reload": "Actualiser"
   },
   "link_hover": {

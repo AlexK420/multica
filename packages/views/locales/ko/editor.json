@@ -83,6 +83,7 @@
     "table_rows_other": "{{count}}행",
     "table_columns_other": "{{count}}열",
     "address": "주소",
+    "address_hint": "?매개변수",
     "reload": "새로고침"
   },
   "link_hover": {

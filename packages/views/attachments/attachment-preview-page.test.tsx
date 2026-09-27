@@ -89,7 +89,7 @@ describe("AttachmentPreviewPage", () => {
     renderPage(<AttachmentPreviewPage attachmentId="att-1" filename="report.html" />);
 
     expect(await screen.findByTitle("report.html")).toBeTruthy();
-    expect(screen.getByText("report.html", { selector: "p" })).toBeTruthy();
+    expect(screen.getByText("report.html")).toBeTruthy();
     expect(screen.getByRole("textbox", { name: "Address" })).toHaveValue("");
     expect(screen.getByRole("button", { name: "Download" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Fit" })).toHaveAttribute("aria-pressed", "true");

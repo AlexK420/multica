@@ -144,6 +144,7 @@ vi.mock("../i18n", () => ({
           table_rows: "rows",
           table_columns: "columns",
           address: "Address",
+          address_hint: "?query",
           reload: "Reload",
         },
       }),
@@ -352,7 +353,10 @@ describe("AttachmentPreviewModal — dispatch", () => {
     fireEvent.change(input, { target: { value: "?s=ia" } });
     fireEvent.submit(input.closest("form")!);
     fireEvent.click(screen.getByRole("button", { name: "View source" }));
+    // The source is the file, not a page: no address, nothing to reload.
     expect(screen.queryByLabelText("Address")).toBeNull();
+    expect(screen.getByText("mock.html", { selector: "p" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reload" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "View source" }));
 
     expect(screen.getByLabelText("Address")).toHaveValue("?s=ia");

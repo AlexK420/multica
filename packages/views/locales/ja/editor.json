@@ -83,6 +83,7 @@
     "table_rows_other": "{{count}} 行",
     "table_columns_other": "{{count}} 列",
     "address": "アドレス",
+    "address_hint": "?パラメータ",
     "reload": "再読み込み"
   },
   "link_hover": {

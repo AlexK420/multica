@@ -34,9 +34,27 @@ export interface HtmlPreviewLocation {
   reload: () => void;
 }
 
-export function useHtmlPreviewLocation(initialAddress = ""): HtmlPreviewLocation {
-  const [load, setLoad] = useState({ address: initialAddress, key: 0 });
-  const [address, setAddress] = useState(initialAddress);
+export function useHtmlPreviewLocation(
+  initialAddress = "",
+  /** The document's identity; another one starts over at `initialAddress`. */
+  scope = "",
+): HtmlPreviewLocation {
+  const [state, setState] = useState({
+    scope,
+    /** The address baked into the current load's srcdoc. */
+    loaded: initialAddress,
+    /** Where the document is now. */
+    address: initialAddress,
+    key: 0,
+  });
+  // The viewer pages to another file without remounting: its document starts
+  // at the initial address, in a fresh frame, instead of the one left behind.
+  let current = state;
+  if (state.scope !== scope) {
+    current = { scope, loaded: initialAddress, address: initialAddress, key: state.key + 1 };
+    setState(current);
+  }
+  const { address, loaded, key } = current;
   const frameElRef = useRef<HTMLIFrameElement | null>(null);
   // Latest address for the stable callbacks below; updated during render,
   // which is idempotent across re-renders.
@@ -44,8 +62,12 @@ export function useHtmlPreviewLocation(initialAddress = ""): HtmlPreviewLocation
   addressRef.current = address;
 
   const loadAt = useCallback((next: string) => {
-    setLoad((previous) => ({ address: next, key: previous.key + 1 }));
-    setAddress(next);
+    setState((previous) => ({
+      ...previous,
+      loaded: next,
+      address: next,
+      key: previous.key + 1,
+    }));
   }, []);
 
   const navigate = useCallback(
@@ -73,7 +95,8 @@ export function useHtmlPreviewLocation(initialAddress = ""): HtmlPreviewLocation
       const message = readHtmlPreviewLocationMessage(event.data);
       if (!message) return;
       if (message.type === "location") {
-        setAddress(message.value);
+        const value = message.value;
+        setState((previous) => ({ ...previous, address: value }));
         return;
       }
       // A navigate request stands for a click on a `?…` link. Activation
@@ -91,11 +114,10 @@ export function useHtmlPreviewLocation(initialAddress = ""): HtmlPreviewLocation
     frameElRef.current = el;
   }, []);
 
-  const loadedAddress = load.address;
   const withAddress = useCallback(
-    (html: string) => withLocationBridge(html, loadedAddress),
-    [loadedAddress],
+    (html: string) => withLocationBridge(html, loaded),
+    [loaded],
   );
 
-  return { address, frameKey: load.key, withAddress, frameRef, navigate, reload };
+  return { address, frameKey: key, withAddress, frameRef, navigate, reload };
 }

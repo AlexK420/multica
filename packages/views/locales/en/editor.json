@@ -87,6 +87,7 @@
     "table_columns_one": "{{count}} column",
     "table_columns_other": "{{count}} columns",
     "address": "Address",
+    "address_hint": "?query",
     "reload": "Reload"
   },
   "link_hover": {

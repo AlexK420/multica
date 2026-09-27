@@ -82,6 +82,7 @@ import {
   MessageSquareText,
   Monitor,
   PanelRight,
+  RotateCw,
   Smartphone,
   Tablet,
   WrapText,
@@ -120,7 +121,7 @@ import { useZoomCanvas, type ZoomCanvasApi } from "./hooks/use-zoom-canvas";
 import { ZoomCanvas, ZoomControls } from "./zoom-canvas";
 import type { Size } from "./utils/zoom-transform";
 import { HtmlPreviewBody } from "./html-preview-body";
-import { HtmlPreviewAddressBar } from "./html-preview-address-bar";
+import { HtmlPreviewAddress } from "./html-preview-address";
 import {
   useHtmlPreviewLocation,
   type HtmlPreviewLocation,
@@ -751,6 +752,18 @@ function PreviewPanel({
   const toggleWrap = () => setWrapChoice(!wrap);
   const [htmlViewport, setHtmlViewport] = useState<HtmlViewport>("fill");
   const [htmlSource, setHtmlSource] = useState(false);
+  // An HTML file's address: shown in the top bar, loaded by the stage. Held
+  // here, per file, so it survives the source view, which unmounts the frame.
+  const htmlLocation = useHtmlPreviewLocation(
+    initialHtmlAddress,
+    state.attachmentId ?? "",
+  );
+  const htmlAddress = htmlLocation.address;
+  useEffect(() => {
+    if (kind === "html" && state.attachmentId) {
+      onHtmlAddressChange?.(state.attachmentId, htmlAddress);
+    }
+  }, [kind, state.attachmentId, htmlAddress, onHtmlAddressChange]);
   const [structuredChoice, setStructuredChoice] = useState<StructuredView>("tree");
   const structuredParse = useStructuredParse(state, kind === "structured");
   const treeAvailable = structuredParse?.ok !== false;
@@ -762,8 +775,7 @@ function PreviewPanel({
     structuredView,
     structuredParse,
     renderHtmlFrame,
-    initialHtmlAddress,
-    onHtmlAddressChange,
+    htmlLocation,
   };
 
   // Gallery navigation hands this panel an attachment the reader never
@@ -865,7 +877,16 @@ function PreviewPanel({
           </span>
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2" style={titleAccessory ? NO_DRAG : undefined}>
-              <p className="truncate text-body font-medium">{state.filename}</p>
+              {kind === "html" && !htmlSource ? (
+                <HtmlPreviewAddress
+                  filename={state.filename}
+                  address={htmlLocation.address}
+                  onNavigate={htmlLocation.navigate}
+                  style={NO_DRAG}
+                />
+              ) : (
+                <p className="truncate text-body font-medium">{state.filename}</p>
+              )}
               {titleAccessory}
             </div>
             {meta.length > 0 && (
@@ -906,6 +927,13 @@ function PreviewPanel({
               toggling the source view must not shift the button just pressed. */}
           {kind === "html" && (
             <>
+              <ChromeButton
+                label={t(($) => $.attachment.reload)}
+                disabled={htmlSource}
+                onClick={htmlLocation.reload}
+              >
+                <RotateCw className="size-4" />
+              </ChromeButton>
               <ChromeSegmented
                 label={t(($) => $.attachment.viewport)}
                 value={htmlViewport}
@@ -1289,8 +1317,7 @@ interface StageView {
   /** The `structured` kind's parse, once its body has loaded. */
   structuredParse: ReturnType<typeof parseStructured> | null;
   renderHtmlFrame: HtmlFrameRenderer;
-  initialHtmlAddress: string;
-  onHtmlAddressChange?: (attachmentId: string, address: string) => void;
+  htmlLocation: HtmlPreviewLocation;
 }
 
 const TEXT_BACKED_KINDS: ReadonlySet<PreviewKind> = new Set<PreviewKind>([
@@ -1409,18 +1436,19 @@ function PreviewContent({
         <TextBackedPreview
           attachmentId={state.attachmentId!}
           onDownload={onDownload}
-          render={(text) => (
-            // Keyed on the file: another document starts at its own address,
-            // not at the one the reader left.
-            <HtmlStage
-              key={state.attachmentId}
-              attachmentId={state.attachmentId!}
-              html={text}
-              title={state.filename}
-              view={view}
-              source={view.htmlSource ? code(text, "xml") : null}
-            />
-          )}
+          render={(text) =>
+            view.htmlSource ? (
+              code(text, "xml")
+            ) : (
+              <HtmlViewportFrame viewport={view.htmlViewport}>
+                {view.renderHtmlFrame({
+                  html: text,
+                  title: state.filename,
+                  location: view.htmlLocation,
+                })}
+              </HtmlViewportFrame>
+            )
+          }
         />
       );
     case "table":
@@ -1482,49 +1510,6 @@ function PreviewContent({
         />
       );
   }
-}
-
-// An HTML file on the stage: the address bar over the document, laid out at
-// the chosen viewport. The address lives here rather than in the frame so it
-// survives the source view, which unmounts the frame; the bar stays out of
-// the viewport frame so a device width never scales it.
-function HtmlStage({
-  attachmentId,
-  html,
-  title,
-  view,
-  source,
-}: {
-  attachmentId: string;
-  html: string;
-  title: string;
-  view: StageView;
-  /** The source view, shown instead of the document when set. */
-  source: ReactNode;
-}) {
-  const location = useHtmlPreviewLocation(view.initialHtmlAddress);
-  const onAddressChange = view.onHtmlAddressChange;
-  useEffect(() => {
-    onAddressChange?.(attachmentId, location.address);
-  }, [attachmentId, location.address, onAddressChange]);
-
-  if (source) return <>{source}</>;
-  return (
-    <div className="flex h-full flex-col">
-      <HtmlPreviewAddressBar
-        filename={title}
-        address={location.address}
-        onNavigate={location.navigate}
-        onReload={location.reload}
-        className="dark shrink-0 pb-2 text-foreground"
-      />
-      <div className="min-h-0 flex-1">
-        <HtmlViewportFrame viewport={view.htmlViewport}>
-          {view.renderHtmlFrame({ html, title, location })}
-        </HtmlViewportFrame>
-      </div>
-    </div>
-  );
 }
 
 // A read-not-looked-at document: a centered sheet in the app's theme that

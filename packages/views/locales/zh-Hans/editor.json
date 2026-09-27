@@ -83,6 +83,7 @@
     "table_rows_other": "{{count}} 行",
     "table_columns_other": "{{count}} 列",
     "address": "地址",
+    "address_hint": "?参数",
     "reload": "刷新"
   },
   "link_hover": {

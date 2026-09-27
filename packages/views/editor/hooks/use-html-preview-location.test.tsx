@@ -79,6 +79,20 @@ describe("useHtmlPreviewLocation", () => {
     expect(result.current.withAddress("")).toBe(withLocationBridge("", "?s=c"));
   });
 
+  it("starts another document over at the initial address, in a fresh frame", () => {
+    const { result, rerender } = renderHook(
+      ({ scope }) => useHtmlPreviewLocation("?s=start", scope),
+      { initialProps: { scope: "file-a" } },
+    );
+    act(() => result.current.navigate("?s=elsewhere"));
+    expect(result.current.address).toBe("?s=elsewhere");
+
+    rerender({ scope: "file-b" });
+    expect(result.current.address).toBe("?s=start");
+    expect(result.current.withAddress("")).toBe(withLocationBridge("", "?s=start"));
+    expect(result.current.frameKey).toBe(2);
+  });
+
   it("follows a link's navigate request only right after a click", () => {
     const { iframe } = mountFrame();
     // jsdom has no user activation; model the browser's.
