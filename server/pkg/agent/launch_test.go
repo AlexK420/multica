@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -509,17 +510,17 @@ func TestZeroclawLaunchPrefixFiltersBlockedFlags(t *testing.T) {
 }
 
 // TestHermesLaunchArgvMatchesBackendAssembly: the daemon must resolve the
-// profile from the argv the backend actually builds — custom args ahead of the
-// `acp` subcommand, where Hermes accepts its global flags (GH #8878) — not from
-// a concatenation that leaves `acp` out.
+// profile from the argv the backend actually builds — global custom args ahead
+// of the `acp` subcommand (GH #8878), `acp`'s own flags behind it — not from a
+// concatenation that leaves `acp` out.
 func TestHermesLaunchArgvMatchesBackendAssembly(t *testing.T) {
 	t.Parallel()
 
 	prefix := []string{"--yolo"}
-	custom := []string{"-p", "research", "--provider", "zai"}
+	custom := []string{"-p", "research", "--yes", "--provider", "zai"}
 
 	argv := HermesLaunchArgv(prefix, custom, slog.Default())
-	if want := []string{"--yolo", "-p", "research", "--provider", "zai", "acp"}; strings.Join(argv, "\x00") != strings.Join(want, "\x00") {
+	if want := []string{"--yolo", "-p", "research", "--provider", "zai", "acp", "--yes"}; strings.Join(argv, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("HermesLaunchArgv = %v, want %v", argv, want)
 	}
 	// It must equal what the backend hands the launch boundary.
@@ -534,20 +535,21 @@ func TestHermesLaunchArgvMatchesBackendAssembly(t *testing.T) {
 	// `acp` participates in the scan: a prefix ending in a bare `-p` selects a
 	// profile named `acp`, which the prefix-only approximation cannot see.
 	bare := []string{"-p"}
-	if sel := ParseHermesProfileArgs(HermesLaunchArgv(bare, nil, slog.Default())); !sel.Found || sel.Name != "acp" {
+	if sel := ParseHermesProfileArgs(HermesLaunchArgv(bare, []string{"--yes"}, slog.Default())); !sel.Found || sel.Name != "acp" {
 		t.Fatalf("selection = %+v, want the `acp` token hermes itself consumes", sel)
 	}
-	if naive := ParseHermesProfileArgs(bare); naive.Found {
+	if naive := ParseHermesProfileArgs(append(bare, "--yes")); naive.Found {
 		t.Fatalf("expected the approximation without `acp` to disagree, got %+v", naive)
 	}
 }
 
-// TestHermesCLIArgsKeepSubcommandLast pins GH #8878: Hermes only accepts its
-// global flags ahead of the subcommand, so `hermes acp --provider zai` exits
-// with a usage error while `hermes --provider zai acp` launches. A custom arg
-// left without its value must not capture `acp` either — Hermes would read it
-// as that flag's value and start interactive chat instead of the ACP server.
-func TestHermesCLIArgsKeepSubcommandLast(t *testing.T) {
+// TestHermesCLIArgsPlaceFlagsAroundSubcommand pins GH #8878: Hermes accepts its
+// global flags only before the subcommand and the flags `acp` declares only
+// after it — `hermes acp --provider zai` and `hermes --yes acp` both exit with
+// a usage error, `hermes --provider zai acp --yes` launches. A global flag left
+// without its value must not capture `acp` either: Hermes would read it as that
+// flag's value and start interactive chat instead of the ACP server.
+func TestHermesCLIArgsPlaceFlagsAroundSubcommand(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -558,12 +560,15 @@ func TestHermesCLIArgsKeepSubcommandLast(t *testing.T) {
 	}{
 		{"no custom args", nil, nil, []string{"acp"}},
 		{"global flags go before acp", nil, []string{"--provider", "zai", "--yolo"}, []string{"--provider", "zai", "--yolo", "acp"}},
+		{"acp flags stay after acp", nil, []string{"--yes", "-y", "--accept-hooks"}, []string{"acp", "--yes", "-y", "--accept-hooks"}},
+		{"mixed keeps each group's order", nil, []string{"--yes", "-p", "research", "--accept-hooks", "--provider", "zai"}, []string{"-p", "research", "--provider", "zai", "acp", "--yes", "--accept-hooks"}},
+		{"a value stays with its flag", nil, []string{"-m", "--yes"}, []string{"-m", "--yes", "acp"}},
 		{"blocked acp is still filtered", nil, []string{"acp", "--yolo"}, []string{"--yolo", "acp"}},
 		{"inline value is complete", nil, []string{"--provider=zai"}, []string{"--provider=zai", "acp"}},
 		{"bare value flag is dropped", nil, []string{"--provider"}, []string{"acp"}},
 		{"bare value flag after a pair is dropped", nil, []string{"-m", "x", "--reasoning"}, []string{"-m", "x", "acp"}},
 		{"bare profile flag is dropped", nil, []string{"--yolo", "-p"}, []string{"--yolo", "acp"}},
-		{"bare optional-value flag is dropped", nil, []string{"-c"}, []string{"acp"}},
+		{"bare optional-value flag is dropped", nil, []string{"-c", "--yes"}, []string{"acp", "--yes"}},
 		{"a flag that is itself a value is kept", nil, []string{"--model", "--provider"}, []string{"--model", "--provider", "acp"}},
 		{"prefix pairs with the first custom arg", []string{"--model"}, []string{"--provider"}, []string{"--provider", "acp"}},
 	}
@@ -573,6 +578,9 @@ func TestHermesCLIArgsKeepSubcommandLast(t *testing.T) {
 			got := hermesCLIArgs(tc.prefix, tc.custom, slog.Default())
 			if strings.Join(got, "\x00") != strings.Join(tc.want, "\x00") {
 				t.Fatalf("hermesCLIArgs(%v, %v) = %v, want %v", tc.prefix, tc.custom, got, tc.want)
+			}
+			if i := hermesACPIndex(got); got[i] != "acp" || slices.Index(tc.want, "acp") != i {
+				t.Fatalf("hermesACPIndex(%v) = %d, want the subcommand's position", got, i)
 			}
 		})
 	}
@@ -627,6 +635,23 @@ func TestStripHermesProfileSelectorsRemovesEveryOccurrence(t *testing.T) {
 	}
 	if strings.Join(custom, "\x00") != strings.Join([]string{"--model", "x"}, "\x00") {
 		t.Fatalf("custom = %v, want unrelated args kept", custom)
+	}
+}
+
+// TestStripHermesProfileSelectorsKeepsCustomArgOrder: `acp`'s own flags launch
+// behind the subcommand, so the assembled argv reorders custom args. Stripping
+// must still remove the selection's own tokens and hand the rest back in their
+// configured order.
+func TestStripHermesProfileSelectorsKeepsCustomArgOrder(t *testing.T) {
+	t.Parallel()
+
+	prefix, custom := StripHermesProfileSelectors(nil,
+		[]string{"--yes", "-p", "research", "--accept-hooks", "--provider", "zai"}, slog.Default())
+	if len(prefix) != 0 {
+		t.Fatalf("prefix = %v, want empty", prefix)
+	}
+	if want := []string{"--yes", "--accept-hooks", "--provider", "zai"}; strings.Join(custom, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("custom = %v, want %v", custom, want)
 	}
 }
 
