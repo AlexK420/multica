@@ -228,16 +228,42 @@ function deleteDatabase(name: string): Promise<void> {
   });
 }
 
-/** Deletes every local search index database on this origin. */
-export async function deleteAllSearchIndexDatabases(): Promise<void> {
+/** The (user, workspace) a local search index database belongs to. */
+export interface SearchIndexDatabaseOwner {
+  userId: string;
+  workspaceId: string;
+}
+
+function parseSearchIndexDatabaseName(name: string): SearchIndexDatabaseOwner | null {
+  const [prefix, userId, workspaceId, ...rest] = name.split(":");
+  if (prefix !== DB_PREFIX || !userId || !workspaceId || rest.length > 0) return null;
+  return { userId, workspaceId };
+}
+
+/**
+ * Deletes the local search index databases on this origin that `shouldDelete`
+ * selects. A name this version cannot parse is always deleted.
+ */
+export async function deleteSearchIndexDatabases(
+  shouldDelete: (owner: SearchIndexDatabaseOwner) => boolean,
+): Promise<void> {
   if (typeof indexedDB === "undefined" || typeof indexedDB.databases !== "function") return;
   const databases = await indexedDB.databases();
   await Promise.all(
     databases
       .map((db) => db.name)
       .filter((name): name is string => !!name && name.startsWith(`${DB_PREFIX}:`))
+      .filter((name) => {
+        const owner = parseSearchIndexDatabaseName(name);
+        return owner === null || shouldDelete(owner);
+      })
       .map((name) => deleteDatabase(name).catch(() => undefined)),
   );
+}
+
+/** Deletes every local search index database on this origin. */
+export function deleteAllSearchIndexDatabases(): Promise<void> {
+  return deleteSearchIndexDatabases(() => true);
 }
 
 export class MemoryIndexStore implements IndexStore {

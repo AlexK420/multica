@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { SearchIndexComment, SearchIndexIssue, SearchIndexProject } from "../types";
 import {
   SearchIndexEngine,
+  utf8Length,
   extractSnippet,
   splitSearchTerms,
   timestampMicros,
@@ -342,5 +343,31 @@ describe("timestampMicros", () => {
     expect(timestampMicros("2026-01-01T00:00:00.000002Z")).toBeGreaterThan(timestampMicros("2026-01-01T00:00:00.000001Z"));
     expect(timestampMicros("2026-01-01T00:00:00.1Z")).toBe(timestampMicros("2026-01-01T00:00:00.100000Z"));
     expect(timestampMicros("2026-01-01T08:00:00+08:00")).toBe(timestampMicros("2026-01-01T00:00:00Z"));
+  });
+});
+
+describe("text budget accounting", () => {
+  it("counts UTF-8 bytes the way the server's text_bytes does", () => {
+    expect(utf8Length("abc")).toBe(3);
+    expect(utf8Length("é")).toBe(2);
+    expect(utf8Length("搜索")).toBe(6);
+    expect(utf8Length("😀")).toBe(4);
+  });
+
+  it("follows upserts, updates, and deletes", () => {
+    const engine = new SearchIndexEngine();
+    const record = issue({ title: "abc", description: "搜索" });
+    engine.upsertIssue(record);
+    engine.upsertComment(comment(record.id, "hello", "2026-01-01T00:00:00Z", "c-1"));
+    engine.upsertProject(project({ title: "p", description: "é" }));
+    expect(engine.textBytes).toBe(3 + 6 + 5 + 1 + 2);
+
+    engine.upsertIssue({ ...record, title: "abcd", description: null });
+    expect(engine.textBytes).toBe(4 + 5 + 1 + 2);
+
+    engine.deleteIssues([record.id]);
+    expect(engine.textBytes).toBe(1 + 2);
+    engine.clear();
+    expect(engine.textBytes).toBe(0);
   });
 });

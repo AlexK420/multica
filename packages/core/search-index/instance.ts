@@ -32,6 +32,11 @@ export function isLocalSearchReady(): boolean {
   return getLocalSearchIndex().isServing();
 }
 
+/** Destroys this device's local copies of a workspace the user can no longer read. */
+export function forgetLocalSearchIndex(workspaceId: string): Promise<void> {
+  return getLocalSearchIndex().forget(workspaceId);
+}
+
 /** Deletes every local search index on this device. */
 export function wipeLocalSearchIndex(): Promise<void> {
   return getLocalSearchIndex().wipe();

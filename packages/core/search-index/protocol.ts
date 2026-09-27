@@ -26,7 +26,11 @@ export type TabMessage =
   | { type: "search"; id: number; kind: "issues" | "projects"; params: IssueSearchParams }
   | { type: "fetch-result"; id: number; ok: true; data: unknown }
   | { type: "fetch-result"; id: number; ok: false; status?: number; message: string }
-  | { type: "wipe"; id: number };
+  | { type: "wipe"; id: number }
+  /** Access to the workspace ended (deleted, removed, left): destroy its copies. */
+  | { type: "forget"; workspaceId: string }
+  /** The user's current workspaces: destroy copies of any other workspace or user. */
+  | { type: "prune"; userId: string; workspaceIds: string[] };
 
 export type WorkerMessage =
   | { type: "hello" }

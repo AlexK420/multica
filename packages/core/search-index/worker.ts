@@ -3,7 +3,7 @@
 // Worker per tab; both speak the protocol in ./protocol.
 import { SearchIndexHost, type PortLike } from "./host";
 import type { TabMessage } from "./protocol";
-import { IdbIndexStore, deleteAllSearchIndexDatabases, searchIndexDatabaseName } from "./store";
+import { IdbIndexStore, deleteSearchIndexDatabases, searchIndexDatabaseName } from "./store";
 
 interface LockManagerLike {
   request<T>(name: string, callback: () => Promise<T>): Promise<T>;
@@ -18,7 +18,7 @@ const locks = (globalThis.navigator as { locks?: LockManagerLike } | undefined)?
 
 const host = new SearchIndexHost({
   createStore: (target) => new IdbIndexStore(searchIndexDatabaseName(target.userId, target.workspaceId)),
-  wipeAll: deleteAllSearchIndexDatabases,
+  deleteDatabases: deleteSearchIndexDatabases,
   indexOptions: {
     withLock: locks ? (name, fn) => locks.request(name, fn) : (_name, fn) => fn(),
   },

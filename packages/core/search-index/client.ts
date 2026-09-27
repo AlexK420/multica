@@ -8,7 +8,7 @@ import type {
 } from "../types";
 import type { IssueSearchParams } from "./engine";
 import { indexTargetKey, type IndexTarget, type TabMessage, type WorkerMessage } from "./protocol";
-import { deleteAllSearchIndexDatabases } from "./store";
+import { deleteAllSearchIndexDatabases, deleteSearchIndexDatabases } from "./store";
 
 /**
  * Tab-side handle on the local search index worker (MUL-7754). Everything here
@@ -99,7 +99,7 @@ export class LocalSearchIndexClient {
   async wipe(): Promise<void> {
     this.target = null;
     this.serving = false;
-    const channel = this.helloReceived && !this.failed ? this.channel : null;
+    const channel = this.usableChannel();
     if (channel) {
       const id = this.nextId++;
       const done = new Promise<void>((resolve) => {
@@ -113,6 +113,43 @@ export class LocalSearchIndexClient {
     await deleteAllSearchIndexDatabases().catch(() => undefined);
   }
 
+  /**
+   * Access to a workspace ended (deleted, removed, left): destroy every local
+   * copy of it now, rather than waiting for a sync that may never run again
+   * because no tab shows that workspace any more.
+   */
+  forget(workspaceId: string): Promise<void> {
+    if (this.target?.workspaceId === workspaceId) {
+      this.target = null;
+      this.serving = false;
+    }
+    // The worker drops the copy from memory and stops syncing it. The tab
+    // deletes the database itself as well: this usually runs just before a
+    // full-page navigation, which may end the worker before its delete does.
+    this.usableChannel()?.post({ type: "forget", workspaceId });
+    return deleteSearchIndexDatabases((owner) => owner.workspaceId === workspaceId).catch(() => undefined);
+  }
+
+  /** Destroys local copies of any workspace (or user) outside this list. */
+  prune(userId: string, workspaceIds: string[]): Promise<void> {
+    const channel = this.usableChannel();
+    if (channel) {
+      channel.post({ type: "prune", userId, workspaceIds });
+      return Promise.resolve();
+    }
+    const keep = new Set(workspaceIds);
+    const shown = this.target;
+    return deleteSearchIndexDatabases(
+      (owner) =>
+        !(owner.userId === userId && keep.has(owner.workspaceId)) &&
+        !(shown && owner.userId === shown.userId && owner.workspaceId === shown.workspaceId),
+    ).catch(() => undefined);
+  }
+
+  private usableChannel(): WorkerChannel | null {
+    return this.helloReceived && !this.failed ? this.channel : null;
+  }
+
   private search(kind: "issues" | "projects", params: IssueSearchParams) {
     const channel = this.channel;
     if (!channel || !this.target || !this.isServing()) return Promise.resolve(null);
@@ -124,6 +161,10 @@ export class LocalSearchIndexClient {
       }, SEARCH_TIMEOUT_MS);
       this.searches.set(id, (result) => {
         clearTimeout(timer);
+        // The worker could not answer (it lost this tab's attachment, or the
+        // copy went stale). Stop treating searches as local, which also
+        // restores the server-search debounce, until it reports serving again.
+        if (result === null) this.serving = false;
         resolve(result);
       });
       const { q, limit, offset, include_closed } = params;
@@ -155,6 +196,11 @@ export class LocalSearchIndexClient {
     setInterval(() => this.channel?.post({ type: "ping" }), PING_INTERVAL_MS);
     if (typeof window !== "undefined") {
       window.addEventListener("pagehide", () => this.channel?.post({ type: "close" }));
+      // A page restored from the back/forward cache said "close" on the way
+      // out, so the worker forgot it; attach again.
+      window.addEventListener("pageshow", (event) => {
+        if (event.persisted && this.target) this.channel?.post({ type: "attach", target: this.target });
+      });
     }
     return channel;
   }

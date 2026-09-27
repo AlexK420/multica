@@ -1,6 +1,6 @@
 import type { SearchIndexChanges, SearchIndexManifest, SearchIndexSnapshotPage } from "../types";
 import { indexTargetKey, type FetchOp, type IndexTarget, type TabMessage, type WorkerMessage } from "./protocol";
-import type { IndexStore } from "./store";
+import type { IndexStore, SearchIndexDatabaseOwner } from "./store";
 import { IndexFetchError, WorkspaceIndex, type IndexFetcher, type WorkspaceIndexOptions } from "./sync";
 
 /**
@@ -20,8 +20,8 @@ export interface PortLike {
 
 export interface SearchIndexHostDeps {
   createStore(target: IndexTarget): IndexStore;
-  /** Deletes every stored index on this origin. */
-  wipeAll(): Promise<void>;
+  /** Deletes the stored indexes on this origin that `shouldDelete` selects. */
+  deleteDatabases(shouldDelete: (owner: SearchIndexDatabaseOwner) => boolean): Promise<void>;
   indexOptions?: Partial<WorkspaceIndexOptions>;
   /** Wait before freeing an index no tab is attached to. */
   releaseDelayMs?: number;
@@ -36,10 +36,17 @@ interface PortEntry {
   port: PortLike;
   target: IndexTarget | null;
   lastSeen: number;
+  /**
+   * What the port was attached to when a sweep dropped it. A tab the browser
+   * froze in the background stays silent past the timeout while another tab
+   * keeps the worker alive; its next message restores the attachment.
+   */
+  suspended: IndexTarget | null;
 }
 
 interface IndexEntry {
   index: WorkspaceIndex;
+  target: IndexTarget;
   slug: string;
   ports: Set<PortEntry>;
   releaseTimer: ReturnType<typeof setTimeout> | null;
@@ -74,7 +81,7 @@ export class SearchIndexHost {
 
   /** Registers a tab's port and returns the handler for its messages. */
   connect(port: PortLike): (message: TabMessage) => void {
-    const entry: PortEntry = { port, target: null, lastSeen: this.now() };
+    const entry: PortEntry = { port, target: null, lastSeen: this.now(), suspended: null };
     this.ports.set(port, entry);
     this.sweepTimer ??= setInterval(() => this.sweep(), Math.min(this.portTimeoutMs, 60_000));
     port.postMessage({ type: "hello" });
@@ -97,6 +104,13 @@ export class SearchIndexHost {
 
   private handle(entry: PortEntry, message: TabMessage): void {
     entry.lastSeen = this.now();
+    if (!this.ports.has(entry.port)) {
+      if (message.type === "close") return;
+      this.ports.set(entry.port, entry);
+      const suspended = entry.suspended;
+      entry.suspended = null;
+      if (suspended && message.type !== "attach" && message.type !== "detach") this.attach(entry, suspended);
+    }
     switch (message.type) {
       case "attach":
         this.attach(entry, message.target);
@@ -127,6 +141,12 @@ export class SearchIndexHost {
       case "wipe":
         void this.wipe(entry, message.id);
         return;
+      case "forget":
+        void this.forget(message.workspaceId);
+        return;
+      case "prune":
+        void this.prune(message.userId, message.workspaceIds);
+        return;
     }
   }
 
@@ -138,6 +158,7 @@ export class SearchIndexHost {
     if (!indexEntry) {
       const created: IndexEntry = {
         index: null as unknown as WorkspaceIndex,
+        target,
         slug: target.workspaceSlug,
         ports: new Set(),
         releaseTimer: null,
@@ -198,15 +219,44 @@ export class SearchIndexHost {
   }
 
   private async wipe(entry: PortEntry, id: number): Promise<void> {
-    const indexes = [...this.indexes.values()];
-    this.indexes.clear();
-    for (const indexEntry of indexes) {
-      if (indexEntry.releaseTimer) clearTimeout(indexEntry.releaseTimer);
-      for (const port of indexEntry.ports) port.target = null;
-    }
-    await Promise.all(indexes.map((indexEntry) => indexEntry.index.dispose(true).catch(() => undefined)));
-    await this.deps.wipeAll().catch(() => undefined);
+    await this.destroyIndexes(() => true);
+    await this.deps.deleteDatabases(() => true).catch(() => undefined);
     entry.port.postMessage({ type: "wiped", id });
+  }
+
+  /** Destroys every copy of a workspace, in memory and on disk. */
+  private async forget(workspaceId: string): Promise<void> {
+    await this.destroyIndexes((indexEntry) => indexEntry.target.workspaceId === workspaceId);
+    await this.deps.deleteDatabases((owner) => owner.workspaceId === workspaceId).catch(() => undefined);
+  }
+
+  /**
+   * Keeps only this user's copies of the listed workspaces. A copy a tab is
+   * still showing survives even if the list lacks it: the list can be a
+   * cached one from before the user joined that workspace.
+   */
+  private async prune(userId: string, workspaceIds: string[]): Promise<void> {
+    const keep = new Set(workspaceIds.map((workspaceId) => indexTargetKey({ userId, workspaceId })));
+    for (const [key, indexEntry] of this.indexes) {
+      if (indexEntry.ports.size > 0) keep.add(key);
+    }
+    await this.destroyIndexes((indexEntry) => !keep.has(indexTargetKey(indexEntry.target)));
+    await this.deps.deleteDatabases((owner) => !keep.has(indexTargetKey(owner))).catch(() => undefined);
+  }
+
+  private async destroyIndexes(select: (indexEntry: IndexEntry) => boolean): Promise<void> {
+    const doomed: IndexEntry[] = [];
+    for (const [key, indexEntry] of this.indexes) {
+      if (!select(indexEntry)) continue;
+      this.indexes.delete(key);
+      if (indexEntry.releaseTimer) clearTimeout(indexEntry.releaseTimer);
+      for (const port of indexEntry.ports) {
+        port.target = null;
+        port.port.postMessage({ type: "serving", key, serving: false });
+      }
+      doomed.push(indexEntry);
+    }
+    await Promise.all(doomed.map((indexEntry) => indexEntry.index.dispose(true).catch(() => undefined)));
   }
 
   private broadcastServing(key: string): void {
@@ -263,11 +313,17 @@ export class SearchIndexHost {
     });
   }
 
-  /** Frees ports whose tab closed without saying so. */
+  /**
+   * Frees ports whose tab went silent: closed without pagehide, or frozen in
+   * the background. A frozen tab that speaks again is restored in `handle`.
+   */
   private sweep(): void {
     const cutoff = this.now() - this.portTimeoutMs;
     for (const entry of [...this.ports.values()]) {
-      if (entry.lastSeen < cutoff) this.disconnect(entry.port);
+      if (entry.lastSeen >= cutoff) continue;
+      const target = entry.target;
+      this.disconnect(entry.port);
+      entry.suspended = target;
     }
   }
 }

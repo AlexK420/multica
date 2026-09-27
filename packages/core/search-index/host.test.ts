@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SearchIndexHost, type PortLike } from "./host";
 import type { IndexTarget, TabMessage, WorkerMessage } from "./protocol";
-import { MemoryIndexStore } from "./store";
+import { MemoryIndexStore, type SearchIndexDatabaseOwner } from "./store";
 import { FakeServer, issueRecord } from "./testing";
 
 const target: IndexTarget = { userId: "user", workspaceId: "ws", workspaceSlug: "acme" };
@@ -40,18 +40,32 @@ class FakeTab implements PortLike {
   }
 }
 
-function setup(server: FakeServer, options: { releaseDelayMs?: number; now?: () => number } = {}) {
+function setup(
+  server: FakeServer,
+  options: { releaseDelayMs?: number; portTimeoutMs?: number; now?: () => number } = {},
+) {
   const stores = new Map<string, MemoryIndexStore>();
-  const wipeAll = vi.fn(async () => undefined);
+  // Databases on "disk": every store ever created, by user:workspace key.
+  const deleteDatabases = vi.fn(async (shouldDelete: (owner: SearchIndexDatabaseOwner) => boolean) => {
+    for (const key of [...stores.keys()]) {
+      const [userId, workspaceId] = key.split(":") as [string, string];
+      if (shouldDelete({ userId, workspaceId })) {
+        await stores.get(key)!.destroy();
+        stores.delete(key);
+      }
+    }
+  });
   const host = new SearchIndexHost({
     createStore: (t) => {
-      const store = stores.get(t.workspaceId) ?? new MemoryIndexStore();
-      stores.set(t.workspaceId, store);
+      const key = `${t.userId}:${t.workspaceId}`;
+      const store = stores.get(key) ?? new MemoryIndexStore();
+      stores.set(key, store);
       return store;
     },
-    wipeAll,
+    deleteDatabases,
     indexOptions: { syncDebounceMs: 0, pollIntervalMs: 60 * 60 * 1000, retryBaseMs: 60 * 60 * 1000 },
     releaseDelayMs: options.releaseDelayMs ?? 60_000,
+    portTimeoutMs: options.portTimeoutMs,
     fetchTimeoutMs: 50,
     now: options.now,
   });
@@ -60,7 +74,7 @@ function setup(server: FakeServer, options: { releaseDelayMs?: number; now?: () 
     tab.send = host.connect(tab);
     return tab;
   };
-  return { host, stores, wipeAll, connect };
+  return { host, stores, deleteDatabases, connect };
 }
 
 async function settle(): Promise<void> {
@@ -150,19 +164,104 @@ describe("SearchIndexHost", () => {
   it("wipes every index on request", async () => {
     const server = new FakeServer();
     server.apply({ kind: "issue", record: issueRecord(1, "Secret") });
-    const { connect, stores, wipeAll } = setup(server);
+    const { connect, stores } = setup(server);
     const tab = connect();
     tab.send({ type: "attach", target });
     await settle();
+    const store = stores.get("user:ws");
 
     tab.send({ type: "wipe", id: 3 });
     await settle();
     expect(tab.last("wiped")).toEqual({ type: "wiped", id: 3 });
-    expect(stores.get("ws")?.destroyed).toBe(true);
-    expect(wipeAll).toHaveBeenCalled();
+    expect(store?.destroyed).toBe(true);
+    expect(stores.size).toBe(0);
 
     tab.send({ type: "search", id: 4, kind: "issues", params: { q: "secret" } });
     await settle();
     expect(tab.last("search-result")?.result).toBeNull();
+  });
+
+  it("restores a tab the sweep dropped once it speaks again", async () => {
+    vi.useFakeTimers();
+    const server = new FakeServer();
+    server.apply({ kind: "issue", record: issueRecord(1, "Needle") });
+    const { connect } = setup(server, { portTimeoutMs: 1_000, releaseDelayMs: 1_000 });
+    const tab = connect();
+    tab.send({ type: "attach", target });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(tab.last("serving")?.serving).toBe(true);
+
+    // Frozen in the background: silent past the timeout, index released.
+    await vi.advanceTimersByTimeAsync(4_000);
+    tab.send({ type: "ping" });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(tab.last("serving")).toEqual({ type: "serving", key: "user:ws", serving: true });
+
+    tab.send({ type: "search", id: 77, kind: "issues", params: { q: "needle" } });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(tab.last("search-result")).toMatchObject({ id: 77, result: { issues: [{ id: "issue-1" }] } });
+  });
+
+  it("does not restore a tab that said it was closing until it attaches again", async () => {
+    const server = new FakeServer();
+    server.apply({ kind: "issue", record: issueRecord(1, "Closing") });
+    const { connect } = setup(server);
+    const tab = connect();
+    tab.send({ type: "attach", target });
+    await settle();
+    tab.send({ type: "close" });
+    const servingBefore = tab.received.filter((m) => m.type === "serving").length;
+
+    tab.send({ type: "ping" });
+    await settle();
+    expect(tab.received.filter((m) => m.type === "serving").length).toBe(servingBefore);
+
+    // Restored from the back/forward cache: the client attaches again.
+    tab.send({ type: "attach", target });
+    await settle();
+    expect(tab.last("serving")?.serving).toBe(true);
+  });
+
+  it("forgets every copy of a workspace, even while a tab shows it", async () => {
+    const server = new FakeServer();
+    server.apply({ kind: "issue", record: issueRecord(1, "Gone soon") });
+    const { connect, stores } = setup(server);
+    const tab = connect();
+    tab.send({ type: "attach", target });
+    await settle();
+    const store = stores.get("user:ws")!;
+
+    tab.send({ type: "forget", workspaceId: "ws" });
+    await settle();
+    expect(store.destroyed).toBe(true);
+    expect(stores.has("user:ws")).toBe(false);
+    expect(tab.last("serving")).toEqual({ type: "serving", key: "user:ws", serving: false });
+
+    tab.send({ type: "search", id: 9, kind: "issues", params: { q: "gone" } });
+    await settle();
+    expect(tab.last("search-result")?.result).toBeNull();
+  });
+
+  it("prunes copies outside the user's workspaces but keeps ones a tab shows", async () => {
+    const server = new FakeServer();
+    const { connect, stores } = setup(server, { releaseDelayMs: 60_000 });
+    const shown = connect();
+    shown.send({ type: "attach", target: { userId: "user", workspaceId: "joined-just-now", workspaceSlug: "new" } });
+    const left = connect();
+    left.send({ type: "attach", target: { userId: "user", workspaceId: "left", workspaceSlug: "left" } });
+    left.send({ type: "detach" });
+    const kept = connect();
+    kept.send({ type: "attach", target });
+    kept.send({ type: "detach" });
+    await settle();
+    // Databases with no index in memory: another user's, and a workspace the
+    // user is no longer in.
+    stores.set("someone-else:ws", new MemoryIndexStore());
+    stores.set("user:removed-offline", new MemoryIndexStore());
+
+    shown.send({ type: "prune", userId: "user", workspaceIds: ["ws"] });
+    await settle();
+
+    expect([...stores.keys()].sort()).toEqual(["user:joined-just-now", "user:ws"]);
   });
 });

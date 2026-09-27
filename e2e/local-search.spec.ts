@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Response } from "@playwright/test";
-import type { TestApiClient } from "./fixtures";
+import { TestApiClient } from "./fixtures";
 import { createTestApi, loginAsDefault, openWorkspaceMenu } from "./helpers";
 
 // Web search answers from the local search index once it has synced
@@ -107,5 +107,35 @@ test.describe("Local search index", () => {
     await page.waitForURL("**/login", { timeout: 10_000, waitUntil: "domcontentloaded" });
 
     await expect.poll(() => searchIndexDatabases(page)).toEqual([]);
+  });
+
+  test("deletes a workspace's local copy when the user is removed from it", async ({ page }) => {
+    const run = Date.now().toString(36);
+    const owner = new TestApiClient();
+    await owner.login(`e2e-owner-${run}@multica.ai`, "E2E Owner");
+    const shared = await owner.ensureWorkspace(`E2E Shared ${run}`, `e2e-shared-${run}`);
+    await owner.markUserOnboarded();
+    await owner.createIssue(`shared ${run} issue`);
+    try {
+      const memberId = await owner.addMemberByEmail(api.getEmail());
+      await loginAsDefault(page);
+
+      const synced = page.waitForResponse(isSearchIndexChanges, { timeout: 45_000 });
+      await page.goto(`/${shared.slug}/issues`, { waitUntil: "domcontentloaded" });
+      await synced;
+      const sharedCopy = (names: string[]) => names.some((name) => name.endsWith(`:${shared.id}`));
+      await expect.poll(async () => sharedCopy(await searchIndexDatabases(page))).toBe(true);
+
+      await owner.removeMember(memberId);
+
+      // The client relocates to a workspace the user still has; the removed
+      // workspace's copy must not survive on the device.
+      await expect
+        .poll(async () => sharedCopy(await searchIndexDatabases(page).catch(() => [shared.id])), { timeout: 20_000 })
+        .toBe(false);
+    } finally {
+      await owner.cleanup();
+      await owner.deleteWorkspace();
+    }
   });
 });

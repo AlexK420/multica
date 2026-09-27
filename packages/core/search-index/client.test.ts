@@ -3,6 +3,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/client";
 import { LocalSearchIndexClient, type SearchIndexApi, type WorkerChannel } from "./client";
 import type { TabMessage, WorkerMessage } from "./protocol";
+import { deleteSearchIndexDatabases, type SearchIndexDatabaseOwner } from "./store";
+
+vi.mock("./store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./store")>()),
+  deleteSearchIndexDatabases: vi.fn(async () => undefined),
+}));
+
+/** The owners the last deleteSearchIndexDatabases call would delete. */
+function deletedAmong(owners: SearchIndexDatabaseOwner[]): string[] {
+  const shouldDelete = vi.mocked(deleteSearchIndexDatabases).mock.calls.at(-1)![0];
+  return owners.filter(shouldDelete).map((o) => `${o.userId}:${o.workspaceId}`);
+}
 
 const target = { userId: "user", workspaceId: "ws", workspaceSlug: "acme" };
 
@@ -40,6 +52,7 @@ function fakeApi(): SearchIndexApi {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.mocked(deleteSearchIndexDatabases).mockClear();
 });
 
 describe("LocalSearchIndexClient", () => {
@@ -122,5 +135,59 @@ describe("LocalSearchIndexClient", () => {
     worker.fail();
     expect(client.isServing()).toBe(false);
     expect(await client.searchIssues({ q: "after failure" })).toBeNull();
+  });
+
+  it("stops treating searches as local when the worker cannot answer", async () => {
+    const worker = fakeChannel();
+    const client = new LocalSearchIndexClient(fakeApi, () => worker.channel);
+    client.attach(target);
+    worker.deliver({ type: "hello" });
+    worker.deliver({ type: "serving", key: "user:ws", serving: true });
+
+    const pending = client.searchIssues({ q: "lost" });
+    const request = worker.posted.at(-1) as { id: number };
+    worker.deliver({ type: "search-result", id: request.id, result: null });
+    expect(await pending).toBeNull();
+    // Back to the debounced server path until the worker reports serving.
+    expect(client.isServing()).toBe(false);
+  });
+
+  it("forgets a workspace through the worker and on disk", async () => {
+    const worker = fakeChannel();
+    const client = new LocalSearchIndexClient(fakeApi, () => worker.channel);
+    client.attach(target);
+    worker.deliver({ type: "hello" });
+    worker.deliver({ type: "serving", key: "user:ws", serving: true });
+
+    await client.forget("ws");
+
+    expect(worker.posted.at(-1)).toEqual({ type: "forget", workspaceId: "ws" });
+    expect(deletedAmong([
+      { userId: "user", workspaceId: "ws" },
+      { userId: "other", workspaceId: "ws" },
+      { userId: "user", workspaceId: "ws2" },
+    ])).toEqual(["user:ws", "other:ws"]);
+    expect(client.isServing()).toBe(false);
+  });
+
+  it("prunes through the worker when it is up, and on disk otherwise", async () => {
+    const worker = fakeChannel();
+    const client = new LocalSearchIndexClient(fakeApi, () => worker.channel);
+    client.attach(target);
+
+    // Before the worker says hello: the tab prunes itself, sparing what it shows.
+    await client.prune("user", ["ws2"]);
+    expect(deletedAmong([
+      { userId: "user", workspaceId: "ws" },
+      { userId: "user", workspaceId: "ws2" },
+      { userId: "user", workspaceId: "gone" },
+      { userId: "other", workspaceId: "ws2" },
+    ])).toEqual(["user:gone", "other:ws2"]);
+
+    worker.deliver({ type: "hello" });
+    vi.mocked(deleteSearchIndexDatabases).mockClear();
+    await client.prune("user", ["ws", "ws2"]);
+    expect(worker.posted.at(-1)).toEqual({ type: "prune", userId: "user", workspaceIds: ["ws", "ws2"] });
+    expect(deleteSearchIndexDatabases).not.toHaveBeenCalled();
   });
 });

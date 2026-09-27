@@ -177,4 +177,53 @@ describe("WorkspaceIndex", () => {
     await index.sync();
     expect((await index.searchIssues({ q: "elsewhere" }))?.issues.map((i) => i.id)).toEqual(["issue-2"]);
   });
+
+  it("drops the copy when catch-up grows it past the memory budget", async () => {
+    const server = new FakeServer();
+    server.apply({ kind: "issue", record: issueRecord(1, "Small") });
+    const { index, store } = makeIndex(server, undefined, { maxTextBytes: 1_000, tooLargeRecheckMs: 60_000 });
+    await started(index);
+    expect(index.isServing()).toBe(true);
+
+    server.apply({ kind: "issue", record: issueRecord(2, "Large", "x".repeat(2_000)) });
+    await index.sync();
+
+    expect(index.currentState).toBe("too_large");
+    expect(index.isServing()).toBe(false);
+    expect(await index.searchIssues({ q: "small" })).toBeNull();
+    expect(store.issues.size).toBe(0);
+    expect(store.meta).toMatchObject({ cursor: null, tooLargeAt: clock });
+
+    // Not re-downloaded on every sync; measured again after the recheck window.
+    const callsBefore = server.calls.length;
+    await index.sync();
+    expect(server.calls.length).toBe(callsBefore);
+  });
+
+  it("drops a stored copy that is already over the budget when it loads", async () => {
+    const server = new FakeServer();
+    server.apply({ kind: "issue", record: issueRecord(1, "Grew", "y".repeat(2_000)) });
+    const store = new MemoryIndexStore();
+    const first = makeIndex(server, store);
+    await started(first.index);
+    await first.index.dispose();
+
+    // The budget shrank (or the copy predates the check): the next load declines it.
+    const { index } = makeIndex(server, store, { maxTextBytes: 1_000 });
+    await started(index);
+    expect(index.currentState).toBe("too_large");
+    expect(store.issues.size).toBe(0);
+  });
+
+  it("stops a bootstrap whose pages outgrow the manifest estimate", async () => {
+    const server = new FakeServer();
+    for (let n = 1; n <= 4; n++) server.apply({ kind: "issue", record: issueRecord(n, `Page ${n}`, "z".repeat(600)) });
+    server.textBytes = 10; // an estimate far below what the pages carry
+    const { index, store } = makeIndex(server, undefined, { maxTextBytes: 1_000 });
+    await started(index);
+
+    expect(index.currentState).toBe("too_large");
+    expect(server.calls.filter((c) => c === "snapshot")).toHaveLength(1);
+    expect(store.issues.size).toBe(0);
+  });
 });

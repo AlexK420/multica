@@ -1,6 +1,8 @@
 import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import type { WSClient } from "../api/ws-client";
 import type { WSEventType } from "../types";
+import { workspaceListOptions } from "../workspace/queries";
 import { getLocalSearchIndex } from "./instance";
 
 /** Server events after which the local copy is likely behind. */
@@ -35,6 +37,19 @@ export function useLocalSearchIndexSync(
     index.attach({ userId, workspaceId, workspaceSlug });
     return () => index.detach();
   }, [userId, workspaceId, workspaceSlug]);
+
+  // Membership is the only access boundary, so the workspace list says which
+  // copies may stay on this device. This catches every way access can end,
+  // including ones this client never saw an event for (removed while offline,
+  // deleted from another device).
+  const { data: workspaces } = useQuery({ ...workspaceListOptions(), enabled: !!userId });
+  useEffect(() => {
+    if (!userId || !workspaces) return;
+    void getLocalSearchIndex().prune(
+      userId,
+      workspaces.map((workspace) => workspace.id),
+    );
+  }, [userId, workspaces]);
 
   useEffect(() => {
     if (!wsClient) return;

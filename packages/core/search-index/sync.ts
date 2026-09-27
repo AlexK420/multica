@@ -51,6 +51,9 @@ export class IndexFetchError extends Error {
   }
 }
 
+/** The copy outgrew the memory budget; it is dropped and server search takes over. */
+class OverBudgetError extends Error {}
+
 export type IndexState =
   | "idle"
   | "loading"
@@ -240,6 +243,7 @@ export class WorkspaceIndex {
         if (!meta.cursor) return;
       } else if (this.loadedCursor !== meta.cursor) {
         await this.reloadFromStore();
+        this.checkBudget();
         this.loadedCursor = meta.cursor;
       }
       this.setState("ready");
@@ -248,7 +252,8 @@ export class WorkspaceIndex {
       this.failures = 0;
       this.options.onChange?.();
     } catch (err) {
-      await this.handleFailure(err);
+      if (err instanceof OverBudgetError) await this.declineTooLarge();
+      else await this.handleFailure(err);
       this.options.onChange?.();
     }
   }
@@ -258,15 +263,10 @@ export class WorkspaceIndex {
     if (progress) {
       // Resume: pages written before the interruption are already stored.
       await this.reloadFromStore();
+      this.checkBudget();
     } else {
       const manifest = await this.fetcher.manifest();
-      if (manifest.text_bytes > this.options.maxTextBytes) {
-        const tooLarge = { ...emptyIndexMeta(), tooLargeAt: this.options.now() };
-        await this.store.reset(tooLarge);
-        this.forgetLoaded();
-        this.setState("too_large");
-        return tooLarge;
-      }
+      if (manifest.text_bytes > this.options.maxTextBytes) throw new OverBudgetError();
       progress = { cursor: manifest.cursor, afterNumber: 0 };
       await this.store.reset({ ...emptyIndexMeta(), bootstrap: progress });
       this.forgetLoaded();
@@ -281,6 +281,7 @@ export class WorkspaceIndex {
         : { ...emptyIndexMeta(), bootstrap: { cursor: progress.cursor, afterNumber: page.next_after_number } };
       await this.store.write({ issues: page.issues, comments: page.comments, projects: page.projects, meta: next });
       this.applyUpserts(page.issues, page.comments, page.projects);
+      this.checkBudget();
       if (page.done) {
         this.loadedCursor = progress.cursor;
         return next;
@@ -307,6 +308,7 @@ export class WorkspaceIndex {
       changes.deleted.comments.forEach((id) => this.engine.deleteComment(id));
       changes.deleted.projects.forEach((id) => this.engine.deleteProject(id));
       this.applyUpserts(changes.issues, changes.comments, changes.projects);
+      this.checkBudget();
       cursor = changes.cursor;
       this.loadedCursor = cursor;
       if (!changes.has_more) return;
@@ -323,6 +325,21 @@ export class WorkspaceIndex {
     const records = await this.store.loadAll();
     this.engine.clear();
     this.applyUpserts(records.issues, records.comments, records.projects);
+  }
+
+  /**
+   * The manifest only sizes the first copy; a workspace keeps growing after
+   * that, so every load and every applied batch is measured again.
+   */
+  private checkBudget(): void {
+    if (this.engine.textBytes > this.options.maxTextBytes) throw new OverBudgetError();
+  }
+
+  /** Drops the copy and serves nothing until the workspace is measured again. */
+  private async declineTooLarge(): Promise<void> {
+    await this.store.reset({ ...emptyIndexMeta(), tooLargeAt: this.options.now() }).catch(() => undefined);
+    this.forgetLoaded();
+    this.setState("too_large");
   }
 
   private forgetLoaded(): void {

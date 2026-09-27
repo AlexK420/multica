@@ -52,6 +52,7 @@ interface IssueEntry {
   title: string;
   description: string;
   updatedAt: number;
+  bytes: number;
 }
 
 interface CommentEntry {
@@ -59,6 +60,7 @@ interface CommentEntry {
   issueId: string;
   content: string;
   createdAt: number;
+  bytes: number;
 }
 
 interface ProjectEntry {
@@ -67,6 +69,23 @@ interface ProjectEntry {
   title: string;
   description: string;
   updatedAt: number;
+  bytes: number;
+}
+
+/** UTF-8 length without encoding, the measure the server's text_bytes uses. */
+export function utf8Length(s: string): number {
+  let bytes = 0;
+  for (let i = 0; i < s.length; i++) {
+    const code = s.charCodeAt(i);
+    if (code < 0x80) bytes += 1;
+    else if (code < 0x800) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff && i + 1 < s.length) {
+      // A surrogate pair is one 4-byte code point.
+      bytes += 4;
+      i++;
+    } else bytes += 3;
+  }
+  return bytes;
 }
 
 // Go's unicode.IsSpace, which the server splits terms on.
@@ -135,62 +154,93 @@ export class SearchIndexEngine {
   private readonly comments = new Map<string, CommentEntry>();
   private readonly projects = new Map<string, ProjectEntry>();
 
+  private bytes = 0;
+
   get size(): { issues: number; comments: number; projects: number } {
     return { issues: this.issues.size, comments: this.comments.size, projects: this.projects.size };
+  }
+
+  /**
+   * UTF-8 bytes of every title, description, and comment held, counted the
+   * way the manifest's text_bytes is, so the memory budget can be enforced as
+   * the workspace grows and not only when the copy is first built.
+   */
+  get textBytes(): number {
+    return this.bytes;
   }
 
   clear(): void {
     this.issues.clear();
     this.comments.clear();
     this.projects.clear();
+    this.bytes = 0;
   }
 
   upsertIssue(issue: SearchIndexIssue): void {
-    this.issues.set(issue.id, {
+    const description = issue.description ?? "";
+    const entry: IssueEntry = {
       id: issue.id,
       number: issue.number,
       status: issue.status,
       terminal: isTerminal(issue),
       title: issue.title.toLowerCase(),
-      description: (issue.description ?? "").toLowerCase(),
+      description: description.toLowerCase(),
       updatedAt: timestampMicros(issue.search_updated_at || issue.updated_at),
-    });
+      bytes: utf8Length(issue.title) + utf8Length(description),
+    };
+    this.bytes += entry.bytes - (this.issues.get(issue.id)?.bytes ?? 0);
+    this.issues.set(issue.id, entry);
   }
 
   upsertComment(comment: SearchIndexComment): void {
-    this.comments.set(comment.id, {
+    const entry: CommentEntry = {
       id: comment.id,
       issueId: comment.issue_id,
       content: comment.content.toLowerCase(),
       createdAt: timestampMicros(comment.created_at),
-    });
+      bytes: utf8Length(comment.content),
+    };
+    this.bytes += entry.bytes - (this.comments.get(comment.id)?.bytes ?? 0);
+    this.comments.set(comment.id, entry);
   }
 
   upsertProject(project: SearchIndexProject): void {
-    this.projects.set(project.id, {
+    const description = project.description ?? "";
+    const entry: ProjectEntry = {
       id: project.id,
       status: project.status,
       title: project.title.toLowerCase(),
-      description: (project.description ?? "").toLowerCase(),
+      description: description.toLowerCase(),
       updatedAt: timestampMicros(project.search_updated_at || project.updated_at),
-    });
+      bytes: utf8Length(project.title) + utf8Length(description),
+    };
+    this.bytes += entry.bytes - (this.projects.get(project.id)?.bytes ?? 0);
+    this.projects.set(project.id, entry);
   }
 
   /** Removes the issues and every comment on them. */
   deleteIssues(ids: readonly string[]): void {
     if (ids.length === 0) return;
     const doomed = new Set(ids);
-    for (const id of doomed) this.issues.delete(id);
+    for (const id of doomed) {
+      this.bytes -= this.issues.get(id)?.bytes ?? 0;
+      this.issues.delete(id);
+    }
     for (const [id, comment] of this.comments) {
-      if (doomed.has(comment.issueId)) this.comments.delete(id);
+      if (doomed.has(comment.issueId)) {
+        this.bytes -= comment.bytes;
+        this.comments.delete(id);
+      }
     }
   }
 
   deleteComment(id: string): void {
+    this.bytes -= this.comments.get(id)?.bytes ?? 0;
     this.comments.delete(id);
   }
 
   deleteProject(id: string): void {
+    this.bytes -= this.projects.get(id)?.bytes ?? 0;
     this.projects.delete(id);
   }
 
