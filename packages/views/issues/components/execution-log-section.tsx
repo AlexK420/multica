@@ -28,11 +28,12 @@ import {
   summarizeTaskUsageAcross,
 } from "../../runtimes/utils";
 import { TerminateTaskConfirmDialog } from "./terminate-task-confirm-dialog";
-import { IssueRunsDialog } from "./issue-runs-dialog";
+import { IssueRunsDialog, RunTriggerLabel } from "./issue-runs-dialog";
 import { buildRunTimeline, type TimelineRun } from "./issue-run-timeline";
 import { canRetryRun, RetryRunButton } from "./retry-run-button";
 import { TaskStatusIcon } from "./task-status-icon";
 import { useStatusLabel, useTriggerText } from "./task-run-labels";
+import { WakeupRunLabel } from "./wakeup-source-chip";
 
 // Right-panel section that lists every agent run for this issue. Active
 // runs sit at the top (always visible when present); below them a spend strip
@@ -333,7 +334,9 @@ function StripBar({ run, maxCost }: { run: TimelineRun; maxCost: number }) {
         {bar}
       </TooltipTrigger>
       <TooltipContent className="max-w-64 flex-col items-start gap-0">
-        <span className="max-w-full truncate">{trigger}</span>
+        <RunTriggerLabel task={run.task} fallback={trigger}>
+          {(label) => <span className="max-w-full truncate">{label}</span>}
+        </RunTriggerLabel>
         <span className="text-micro text-muted-foreground">
           {[
             cost != null ? formatUsd(cost) : t(($) => $.execution_log.strip_no_usage),
@@ -511,7 +514,11 @@ export function ActiveTaskRow({
   // same change that adds incremental reporting + cache invalidation.
   return (
     <RowShell task={task}>
-      <TriggerText text={trigger} />
+      {task.wakeup_id ? (
+        <WakeupRunLabel task={task} fallback={trigger} render={(label) => <TriggerText text={label} />} />
+      ) : (
+        <TriggerText text={trigger} />
+      )}
       <TaskCommentCoverage task={task} />
       <RowStatus title={label}>
         {task.status === "running" ? (
@@ -622,7 +629,11 @@ function PastRow({ task, issueId }: { task: AgentTask; issueId: string }) {
 
   return (
     <RowShell task={task} title={rowTitle}>
-      <TriggerText text={trigger} />
+      {task.wakeup_id ? (
+        <WakeupRunLabel task={task} fallback={trigger} render={(label) => <TriggerText text={label} />} />
+      ) : (
+        <TriggerText text={trigger} />
+      )}
       <TaskCommentCoverage task={task} />
       <RowStatus title={statusTitle}>
         <TaskStatusIcon status={task.status} />
