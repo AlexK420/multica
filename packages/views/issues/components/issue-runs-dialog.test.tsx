@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { act, cleanup, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentTask, TaskUsage } from "@multica/core/types";
 import { useCustomPricingStore } from "@multica/core/runtimes/custom-pricing-store";
@@ -10,14 +10,10 @@ vi.mock("../../common/actor-avatar", () => ({
   ActorAvatar: () => <span data-testid="actor-avatar" />,
 }));
 
-vi.mock("../../common/task-transcript/agent-transcript-dialog", () => ({
-  AgentTranscriptDialog: ({ task, finalFocus }: { task: AgentTask; finalFocus?: boolean }) => (
-    <div data-testid="transcript" data-task-id={task.id} data-final-focus={String(!!finalFocus)} />
+vi.mock("../../common/task-transcript", () => ({
+  TranscriptButton: ({ title }: { title?: string }) => (
+    <button type="button">{title ?? "Transcript"}</button>
   ),
-}));
-
-vi.mock("@multica/core/chat/queries", () => ({
-  useTaskMessages: () => ({ data: [], isPending: false, isError: false, refetch: vi.fn() }),
 }));
 
 vi.mock("@multica/core/workspace/hooks", () => ({
@@ -188,39 +184,11 @@ describe("IssueRunsDialog", () => {
     expect(screen.getAllByText("$7.00").length).toBeGreaterThan(0);
   });
 
-  it("opens a run's transcript from anywhere on its row", () => {
-    open([
-      makeTask({ id: "first", trigger_summary: "First run", usage: [usage()] }),
-      makeTask({ id: "second", trigger_summary: "Second run", started_at: "2026-09-27T11:00:00", completed_at: "2026-09-27T11:05:00", usage: [usage({ output_tokens: 200_000 })] }),
-    ]);
-    expect(screen.queryByTestId("transcript")).not.toBeInTheDocument();
-
-    // A pointer click on the cost, far from the trigger text.
-    fireEvent.click(screen.getByText("$5.00"), { detail: 1 });
-    expect(screen.getByTestId("transcript")).toHaveAttribute("data-task-id", "second");
-    expect(screen.getByTestId("transcript")).toHaveAttribute("data-final-focus", "false");
-  });
-
-  it("gives keyboard users the row's trigger as its button, and focus back", () => {
-    open([makeTask({ id: "only", trigger_summary: "Only run", usage: [usage()] })]);
-
-    // Enter/Space fire a click with no pointer detail.
-    fireEvent.click(screen.getByRole("button", { name: "Only run" }), { detail: 0 });
-    expect(screen.getByTestId("transcript")).toHaveAttribute("data-final-focus", "true");
-  });
-
   it("keeps the whole trigger reachable when one line truncates it", () => {
     const long = "把之前拆出去的三个子任务都合并回这个 PR，conditions / history / runaway protection 一起做完再提交";
     open([makeTask({ trigger_comment_id: "comment-1", trigger_summary: long, usage: [usage()] })]);
 
-    expect(screen.getByRole("button", { name: `“${long}”` })).toHaveAttribute("title", `“${long}”`);
-  });
-
-  it("retries without opening the transcript", () => {
-    open([makeTask({ status: "failed", usage: [usage()] })]);
-
-    fireEvent.click(screen.getByRole("button", { name: "Retry run" }));
-    expect(screen.queryByTestId("transcript")).not.toBeInTheDocument();
+    expect(screen.getByText(`“${long}”`)).toHaveAttribute("title", `“${long}”`);
   });
 
   it("renders in the member's language", () => {
