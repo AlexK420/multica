@@ -421,11 +421,25 @@ export function MembersTab() {
   const requestedView = resolveSettingsLocation(
     navigation?.searchParams ?? new URLSearchParams(),
   ).section;
-  const [view, setView] = useState<MembersView>(
+  const urlView: MembersView =
     requestedView === "invitations" || requestedView === "links"
       ? requestedView
-      : "members",
-  );
+      : "members";
+  const [localView, setLocalView] = useState<MembersView>(urlView);
+  // With a router the URL owns the open list, so search results that land on
+  // this page and back/forward switch it too. Without one it is local state.
+  const view = navigation ? urlView : localView;
+  const setView = (next: MembersView) => {
+    if (!navigation) {
+      setLocalView(next);
+      return;
+    }
+    navigation.replace(
+      settingsHref(navigation.pathname, navigation.searchParams, "members", {
+        section: next === "members" ? undefined : next,
+      }),
+    );
+  };
   const [memberQuery, setMemberQuery] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<MemberRole>("member");

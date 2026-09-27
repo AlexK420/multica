@@ -1,14 +1,29 @@
-import type { ReactNode } from "react";
+import { useSyncExternalStore, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { configStore } from "@multica/core/config";
 import { BILLING_WORKSPACE_SUBSCRIPTIONS_FLAG } from "@multica/core/feature-flags";
 import { renderWithI18n } from "../../test/i18n";
 
 const mockCreateMember = vi.hoisted(() => vi.fn());
+// The URL the settings router holds; `setSearch` stands in for navigation.
+const url = vi.hoisted(() => {
+  const listeners = new Set<() => void>();
+  const state = { search: "" };
+  return {
+    get: () => state.search,
+    set: (search: string) => {
+      state.search = search;
+      listeners.forEach((listener) => listener());
+    },
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+});
 const data = vi.hoisted(() => ({
-  search: "",
   members: [] as Array<Record<string, unknown>>,
   invitations: [] as Array<Record<string, unknown>>,
   shareLinks: [] as Array<Record<string, unknown>>,
@@ -59,10 +74,16 @@ vi.mock("../../navigation", () => ({
       {children}
     </a>
   ),
-  useOptionalNavigation: () => ({
-    pathname: "/acme/settings",
-    searchParams: new URLSearchParams(data.search),
-  }),
+  useOptionalNavigation: () => {
+    const search = useSyncExternalStore(url.subscribe, url.get);
+    const go = (href: string) => url.set(href.split("?")[1] ?? "");
+    return {
+      pathname: "/acme/settings",
+      searchParams: new URLSearchParams(search),
+      push: go,
+      replace: go,
+    };
+  },
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -81,7 +102,7 @@ const member = (id: string, name: string, role: string) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
-  data.search = "tab=members";
+  url.set("tab=members");
   data.members = [
     member("user-1", "Ada Lovelace", "owner"),
     member("user-2", "Grace Hopper", "admin"),
@@ -145,8 +166,28 @@ describe("MembersTab", () => {
     ).toBeInTheDocument();
   });
 
+  it("keeps the open list in the URL and follows it while on the page", async () => {
+    const user = userEvent.setup();
+    renderWithI18n(<MembersTab />);
+
+    await user.click(screen.getByRole("tab", { name: /Pending invitations\s*1/ }));
+    expect(url.get()).toBe("tab=members&section=invitations");
+
+    // A search result or back/forward changes the URL without remounting.
+    act(() => url.set("tab=members&section=links"));
+    expect(screen.getByRole("tab", { name: /Share links\s*0/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    act(() => url.set("tab=members"));
+    expect(screen.getByRole("tab", { name: /Members\s*3/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
   it("opens the tab a deep link names", () => {
-    data.search = "tab=members&section=links";
+    url.set("tab=members&section=links");
     renderWithI18n(<MembersTab />);
     expect(screen.getByRole("tab", { name: /Share links\s*0/ })).toHaveAttribute(
       "aria-selected",
