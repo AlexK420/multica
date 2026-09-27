@@ -93,6 +93,12 @@ func claimRun(t *testing.T, taskID string, rendersJoined bool) string {
 	return resp.WakeupJoined
 }
 
+// startRun marks a claimed run started, as the daemon's start call does.
+func startRun(t *testing.T, taskID string) {
+	t.Helper()
+	dbfx.Exec(t, `UPDATE agent_task_queue SET status = 'running', started_at = clock_timestamp() WHERE id = $1`, taskID)
+}
+
 func createRule(t *testing.T, issueID, agentID string, source pgtype.UUID, in service.WakeupInput) string {
 	t.Helper()
 	in.AgentID = agentID
@@ -187,6 +193,8 @@ func TestWakeupJoinsTheAgentsWaitingRun(t *testing.T) {
 	if strings.Count(notes, "Wakeup "+rule) != 1 || !strings.Contains(notes, "Summarize the discussion") || strings.Count(notes, "comment.created") != 2 {
 		t.Fatalf("joined notes = %q", notes)
 	}
+	startRun(t, waiting)
+	runWakeupTick(t)
 	outcome, taskID := lastWakeupOutcome(t, issue)
 	if outcome != "merged" || taskID != waiting {
 		t.Fatalf("outcome = %q task = %q, want merged into %s", outcome, taskID, waiting)

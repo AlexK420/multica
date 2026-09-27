@@ -1566,6 +1566,15 @@ func (q *Queries) RecordWakeupReceipt(ctx context.Context, arg RecordWakeupRecei
 	return i, err
 }
 
+const releaseWakeupReceipts = `-- name: ReleaseWakeupReceipts :exec
+UPDATE issue_wakeup_receipt SET task_id=NULL WHERE id=ANY($1::uuid[]) AND processed_at IS NULL
+`
+
+func (q *Queries) ReleaseWakeupReceipts(ctx context.Context, ids []pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, releaseWakeupReceipts, ids)
+	return err
+}
+
 const replaceWakeupEvidence = `-- name: ReplaceWakeupEvidence :one
 UPDATE agent_task_queue SET handoff_note=$1, context=COALESCE(context,'{}'::jsonb) || jsonb_build_object('wakeup_evidence', $2::jsonb) WHERE id= $3 AND status='queued' RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, wait_reason, initiator_user_id, handoff_note, prepare_lease_expires_at, squad_id, runtime_mcp_overlay, escalation_for_task_id, fire_at, originator_user_id, runtime_connected_apps, coalesced_comment_ids, delivered_comment_ids, chat_input_task_id, chat_finalize_deferred_at, originator_source, delegated_from_task_id, retry_of_task_id, rerun_of_task_id, rule_version_id, trigger_evidence_kind, trigger_evidence_ref_id, accountable_user_id, session_rollout_missing, retired_session_id, quick_actions_disabled, regenerate_quick_actions_for, branch_name, durable_work_dir, channel_context_revision, comment_thread_id, cancelled_by_type, cancelled_by_id, cancelled_by_name, issue_snapshot
 `
@@ -1641,6 +1650,22 @@ func (q *Queries) ReplaceWakeupEvidence(ctx context.Context, arg ReplaceWakeupEv
 		&i.IssueSnapshot,
 	)
 	return i, err
+}
+
+const reserveWakeupReceipts = `-- name: ReserveWakeupReceipts :exec
+UPDATE issue_wakeup_receipt SET task_id= $1 WHERE id=ANY($2::uuid[]) AND processed_at IS NULL
+`
+
+type ReserveWakeupReceiptsParams struct {
+	TaskID pgtype.UUID   `json:"task_id"`
+	Ids    []pgtype.UUID `json:"ids"`
+}
+
+// A run being claimed takes these inputs along. They stay pending: they count
+// as handled once that run starts, and go back to the rule if it never does.
+func (q *Queries) ReserveWakeupReceipts(ctx context.Context, arg ReserveWakeupReceiptsParams) error {
+	_, err := q.db.Exec(ctx, reserveWakeupReceipts, arg.TaskID, arg.Ids)
+	return err
 }
 
 const setClaimedTaskContext = `-- name: SetClaimedTaskContext :one

@@ -35,6 +35,26 @@ func wakeClaim(t *testing.T, f principalFixture, s *IssueWakeupService, taskID s
 	return JoinedWakeupNotes(joined)
 }
 
+// wakeStart marks the run started, as the daemon's start call does.
+func wakeStart(t *testing.T, f principalFixture, taskID string) {
+	t.Helper()
+	f.Exec(t, "UPDATE agent_task_queue SET status='running',started_at=clock_timestamp() WHERE id=$1", taskID)
+}
+
+// wakeRequeue sends a claimed run back to the queue the way a claim that
+// could not be finalized does.
+func wakeRequeue(t *testing.T, f principalFixture, s *IssueWakeupService, taskID string) {
+	t.Helper()
+	task, err := f.q.GetAgentTask(context.Background(), parseTestUUID(t, taskID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := s.Tasks.RequeueTaskAfterClaimFailure(context.Background(), task)
+	if err != nil || next == nil || next.Status != "queued" {
+		t.Fatalf("requeue: %+v %v", next, err)
+	}
+}
+
 func invocableByWorkspace(t *testing.T, f principalFixture, agent string) {
 	t.Helper()
 	f.Exec(t, "UPDATE agent SET permission_mode='public_to',visibility='workspace' WHERE id=$1", agent)
@@ -51,6 +71,8 @@ func TestJoinedWakeupCountsTowardTheCap(t *testing.T) {
 	if notes := wakeClaim(t, f, s, waiting); !strings.Contains(notes, "Review") {
 		t.Fatalf("the claimed run lacks the rule: %q", notes)
 	}
+	wakeStart(t, f, waiting)
+	wakeTick(t, f, s, w.ID)
 	got, err := f.q.LocklessWakeup(context.Background(), w.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -91,14 +113,50 @@ func TestTurnedOffWakeupHandsNothingOver(t *testing.T) {
 				if notes := wakeClaim(t, f, s, waiting); notes == "" {
 					t.Fatal("the first claim got nothing")
 				}
-				// The claim did not go through; the run waits again.
-				f.Exec(t, "UPDATE agent_task_queue SET status='queued',dispatched_at=NULL WHERE id=$1", waiting)
+				wakeRequeue(t, f, s, waiting)
 			}
 			if err := tc.off(s, issue, w, parseTestUUID(t, f.UserID)); err != nil {
 				t.Fatal(err)
 			}
 			if notes := wakeClaim(t, f, s, waiting); notes != "" {
 				t.Fatalf("the run still gets the rule: %q", notes)
+			}
+		})
+	}
+}
+
+// The sub-issue rule turned off on the issue or for the workspace between a
+// claim that did not go through and the next one no longer reaches the run.
+func TestTurnedOffChildDoneRuleLeavesARequeuedRun(t *testing.T) {
+	for _, scope := range []string{"issue", "workspace"} {
+		t.Run(scope, func(t *testing.T) {
+			f, s, issue, agent := conditionFixture(t)
+			ctx := context.Background()
+			f.Exec(t, "UPDATE issue SET status='in_progress',assignee_type='agent',assignee_id=$2 WHERE id=$1", issue, agent)
+			child := f.Issue(t, "child", testutil.Cols{"parent_issue_id": issue, "status": "in_progress"})
+			f.Cleanup(t, "DELETE FROM issue_child_event WHERE parent_id=$1", issue)
+			if err := s.ProcessChildEvents(ctx, issue); err != nil {
+				t.Fatal(err)
+			}
+			waiting := wakeWaitingRun(t, f, issue, agent, f.UserID)
+			f.Exec(t, "UPDATE issue SET status='done' WHERE id=$1", child)
+			if err := s.ProcessChildEvents(ctx, issue); err != nil {
+				t.Fatal(err)
+			}
+			if notes := wakeClaim(t, f, s, waiting); notes == "" {
+				t.Fatal("the first claim got nothing")
+			}
+			wakeRequeue(t, f, s, waiting)
+			off := false
+			if scope == "issue" {
+				if _, err := s.UpdateChildDoneRule(ctx, issue, SystemWakeupInput{Enabled: &off}); err != nil {
+					t.Fatal(err)
+				}
+			} else if _, err := s.SetChildDoneDefault(ctx, parseTestUUID(t, f.WorkspaceID), &off, nil); err != nil {
+				t.Fatal(err)
+			}
+			if notes := wakeClaim(t, f, s, waiting); notes != "" {
+				t.Fatalf("the turned-off rule still reaches the run: %q", notes)
 			}
 		})
 	}
@@ -170,6 +228,30 @@ func TestWakeupKeepsItsInputWhenTheWaitingRunDoesNotTakeIt(t *testing.T) {
 		wakeTick(t, f, s, w.ID)
 		if n := f.Count(t, "SELECT count(*) FROM agent_task_queue WHERE context->>'wakeup_id'=$1 AND status='queued'", util.UUIDToString(w.ID)); n != 1 {
 			t.Fatalf("queued runs of the rule = %d, want 1", n)
+		}
+	})
+	t.Run("run claimed, sent back, then cancelled with its rule", func(t *testing.T) {
+		f, s, issue, agent := conditionFixture(t)
+		member := parseTestUUID(t, f.UserID)
+		host := wakeCreate(t, f, s, issue, WakeupInput{AgentID: agent, Kind: "every", IntervalSeconds: 3600, Instruction: "Scheduled check"})
+		if err := s.Trigger(ctx, issue, host.ID, member); err != nil {
+			t.Fatal(err)
+		}
+		var waiting string
+		f.QueryRow(t, "SELECT id::text FROM agent_task_queue WHERE context->>'wakeup_id'=$1", util.UUIDToString(host.ID)).Scan(&waiting)
+		w := wakeCreate(t, f, s, issue, WakeupInput{AgentID: agent, Kind: "event", EventTypes: []string{"comment.created"}, Instruction: "Independent once-only work"})
+		f.Comment(t, util.UUIDToString(issue), "trigger")
+		wakeTick(t, f, s, w.ID)
+		if notes := wakeClaim(t, f, s, waiting); !strings.Contains(notes, "Independent once-only work") {
+			t.Fatalf("the claim lacks the rule: %q", notes)
+		}
+		wakeRequeue(t, f, s, waiting)
+		if _, err := s.Disable(ctx, issue, host.ID, member); err != nil {
+			t.Fatal(err)
+		}
+		got := wakeTick(t, f, s, w.ID)
+		if n := f.Count(t, "SELECT count(*) FROM agent_task_queue WHERE context->>'wakeup_id'=$1 AND status='queued'", util.UUIDToString(w.ID)); n != 1 {
+			t.Fatalf("queued runs of the rule = %d (enabled=%t fire_count=%d), want 1", n, got.Enabled, got.FireCount)
 		}
 	})
 	t.Run("run claimed by an older daemon", func(t *testing.T) {

@@ -494,13 +494,6 @@ func (s *IssueWakeupService) dispatchSystem(ctx context.Context, prev db.IssueWa
 	if err != nil {
 		return err
 	}
-	if len(receipts) == 0 {
-		return tx.Commit(ctx)
-	}
-	ids := make([]pgtype.UUID, 0, len(receipts))
-	for _, r := range receipts {
-		ids = append(ids, r.ID)
-	}
 	var activities []wakeupActivity
 	var inbox []db.InboxItem
 	note := func(action string, details map[string]any) error {
@@ -520,6 +513,36 @@ func (s *IssueWakeupService) dispatchSystem(ctx context.Context, prev db.IssueWa
 		}
 		return nil
 	}
+	// Facts a claimed run took along count once that run starts; until then
+	// they wait with it, and they come back if it ends without starting.
+	receipts, _, taken, err := takenReceipts(ctx, q, receipts)
+	if err != nil {
+		return err
+	}
+	for _, run := range taken {
+		if err = q.ConsumeWakeupReceipts(ctx, db.ConsumeWakeupReceiptsParams{Ids: receiptIDs(run.receipts), TaskID: run.task.ID}); err != nil {
+			return err
+		}
+		if err = q.AdvanceIssueWakeup(ctx, db.AdvanceIssueWakeupParams{ID: w.ID, Enabled: true, LastTaskID: run.task.ID}); err != nil {
+			return err
+		}
+		if err = q.CountWakeupFires(ctx, w.ID); err != nil {
+			return err
+		}
+		facts := childDoneFacts(run.receipts)
+		facts["target_type"], facts["target_id"] = "agent", util.UUIDToString(run.task.AgentID)
+		if current.Agent.ID == run.task.AgentID {
+			facts["target_type"], facts["target_id"] = current.Type, util.UUIDToString(current.ID)
+		}
+		facts["outcome"], facts["task_id"] = wakeupOutcomeMerged, util.UUIDToString(run.task.ID)
+		if err = note(wakeupActivityTriggered, facts); err != nil {
+			return err
+		}
+	}
+	if len(receipts) == 0 {
+		return commit()
+	}
+	ids := receiptIDs(receipts)
 	facts := childDoneFacts(receipts)
 	if current.Type != "none" {
 		facts["target_type"], facts["target_id"] = current.Type, util.UUIDToString(current.ID)

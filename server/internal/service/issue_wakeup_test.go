@@ -113,12 +113,19 @@ func TestIssueWakeupEventAtomicOnceAndIndependentInputs(t *testing.T) {
 	if notes := wakeClaim(t, f, s, ordinary); !strings.Contains(notes, comment) || !strings.Contains(notes, "Review latest changes") {
 		t.Fatalf("the claimed run lacks the joined input: %q", notes)
 	}
+	// The input is the run's once it starts; until then the rule keeps it.
+	wakeDispatch(t, s, w)
+	if got, e = f.q.GetIssueWakeup(ctx, db.GetIssueWakeupParams{ID: w.ID, WorkspaceID: w.WorkspaceID}); e != nil || !got.Enabled || got.FireCount != 0 {
+		t.Fatalf("before the run started: %+v %v", got, e)
+	}
+	wakeStart(t, f, ordinary)
+	wakeDispatch(t, s, w)
 	got, e = f.q.GetIssueWakeup(ctx, db.GetIssueWakeupParams{ID: w.ID, WorkspaceID: w.WorkspaceID})
 	if e != nil {
 		t.Fatal(e)
 	}
 	if got.Enabled || util.UUIDToString(got.LastTaskID) != ordinary || got.FireCount != 1 {
-		t.Fatalf("after joining: enabled=%t last_task=%s fire_count=%d", got.Enabled, util.UUIDToString(got.LastTaskID), got.FireCount)
+		t.Fatalf("after the run started: enabled=%t last_task=%s fire_count=%d", got.Enabled, util.UUIDToString(got.LastTaskID), got.FireCount)
 	}
 	if n := wakeRuns(t, f, w.ID); n != 0 {
 		t.Fatalf("the wakeup also queued %d runs of its own", n)

@@ -467,6 +467,7 @@ func TestChildDoneJoinsPendingRun(t *testing.T) {
 			}
 
 			notes := claimRun(t, waiting, rendersJoined)
+			startRun(t, waiting)
 			runWakeupTick(t)
 			entries := childDoneEntries(t, fx.parent.ID)
 			if !rendersJoined {
@@ -508,6 +509,8 @@ func TestChildDoneAndConditionRuleWakeOnce(t *testing.T) {
 	if notes := claimRun(t, run, true); !strings.Contains(notes, service.ChildDoneDefaultInstruction) {
 		t.Fatalf("the person's run lacks the system rule: %q", notes)
 	}
+	startRun(t, run)
+	runWakeupTick(t)
 	entries := childDoneEntries(t, fx.parent.ID)
 	if len(entries) != 1 || entries[0].Outcome != "merged" || entries[0].TaskID != run {
 		t.Fatalf("system entries = %+v", entries)

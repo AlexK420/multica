@@ -249,6 +249,14 @@ ORDER BY w.created_at,w.id;
 -- A rule another writer holds is skipped; it keeps its inputs.
 SELECT * FROM issue_wakeup WHERE id= @id FOR UPDATE SKIP LOCKED;
 
+-- name: ReserveWakeupReceipts :exec
+-- A run being claimed takes these inputs along. They stay pending: they count
+-- as handled once that run starts, and go back to the rule if it never does.
+UPDATE issue_wakeup_receipt SET task_id= @task_id WHERE id=ANY(@ids::uuid[]) AND processed_at IS NULL;
+
+-- name: ReleaseWakeupReceipts :exec
+UPDATE issue_wakeup_receipt SET task_id=NULL WHERE id=ANY(@ids::uuid[]) AND processed_at IS NULL;
+
 -- name: SetClaimedTaskContext :one
 -- Only the claim being answered may change its task's context.
 UPDATE agent_task_queue SET context= @context::jsonb

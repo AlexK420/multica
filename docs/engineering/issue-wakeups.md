@@ -537,26 +537,35 @@ checks two things before it creates a run:
   nothing and keeps its inputs (`FindWaitingIssueRun`); timers advance and a
   `once` rule stays on, as while its own run is claimed. When a daemon that
   advertises `joined-wakeups-v1` claims that run, `JoinWaitingWakeups` runs
-  after every claim gate: for each such rule, locked with `SKIP LOCKED`, it
-  checks again that the rule is on, has no run of its own, targets this agent,
-  runs as this run's originator, the creator may still use the agent, the
-  inputs are not the agent's own and do not close a loop. It then consumes the
-  inputs into the run, advances the rule (a `once` rule ends, a merge counts
-  toward `max_fires` and can pause the rule there), adds the rule's chain to
-  the run's `wakeup_chain`, writes a `wakeup_triggered` entry
-  (`outcome=merged`, `task_id`) and appends `{wakeup_id, wakeup_revision,
-  note}` to the run's `context.wakeup_joined`. The claim response carries the
-  notes as `wakeup_joined`; the daemon renders them as a
-  `[WAKEUP — joined this run]` block for every prompt kind. A re-claim drops
-  entries whose rule was deleted, turned off or changed since.
+  after every claim gate. For each waiting rule, locked with `SKIP LOCKED`, it
+  checks that the rule is on, has no run of its own, targets this agent, runs
+  as this run's originator, the creator may still use the agent, the inputs
+  are not the agent's own and do not close a loop. It then reserves the inputs
+  for the run (`issue_wakeup_receipt.task_id`, still unprocessed), adds the
+  rule's chain to the run's `wakeup_chain` and appends `{wakeup_id,
+  wakeup_revision, note}` to the run's `context.wakeup_joined`. The claim
+  response carries the notes as `wakeup_joined`; the daemon renders them as a
+  `[WAKEUP — joined this run]` block for every prompt kind.
+- **Settling a merge.** Reserved inputs stay the rule's until the run starts.
+  On the rule's next dispatch (`takenReceipts`): inputs of a run that has
+  started are consumed into it, count as a firing (a `once` rule ends, a
+  merge counts toward `max_fires` and can pause the rule there) and write a
+  `wakeup_triggered` entry (`outcome=merged`, `task_id`); inputs of a run that
+  ended without starting go back to the rule, which then handles them like
+  any other input; inputs of a run that has not started yet keep waiting.
+  Turning a rule off, deleting it or changing it discards its pending inputs,
+  reserved ones included. A later claim of the same run (after a claim that
+  did not go through) checks every entry again and drops the ones whose rule
+  no longer has inputs reserved for it or may no longer reach the run.
 
-Nothing is handed over before the claim, so a rule never loses inputs to a run
-that does not take them: if the waiting run is cancelled, or an older daemon
-claims it, the rule still has its inputs and starts its own run on a later
-tick. Joining skips the hourly run limit, which counts the rule's own runs;
-every join needs a run some other trigger queued, so joins alone cannot run
-away. The create form tells a member when a reply or comment rule would wake
-the issue's agent assignee, whose comment-triggered run it will join.
+Nothing is consumed before the run starts, so a rule never loses inputs to a
+run that does not run them: if the waiting run is cancelled, fails before
+starting, or an older daemon claims it, the rule still has its inputs and
+starts its own run on a later tick. Joining skips the hourly run limit, which
+counts the rule's own runs; every join needs a run some other trigger queued,
+so joins alone cannot run away. The create form tells a member when a reply or
+comment rule would wake the issue's agent assignee, whose comment-triggered run
+it will join.
 
 ## Conditions, runaway protection and check-ins
 

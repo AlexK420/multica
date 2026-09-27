@@ -882,6 +882,63 @@ func (s *IssueWakeupService) dispatch(ctx context.Context, prev db.IssueWakeup) 
 	if err != nil {
 		return err
 	}
+	// Inputs a claimed run took along count once that run starts; until then
+	// they wait with it, and they come back if it ends without starting.
+	receipts, _, taken, err := takenReceipts(ctx, q, receipts)
+	if err != nil {
+		return err
+	}
+	for _, run := range taken {
+		if err = q.ConsumeWakeupReceipts(ctx, db.ConsumeWakeupReceiptsParams{Ids: receiptIDs(run.receipts), TaskID: run.task.ID}); err != nil {
+			return err
+		}
+		if err = q.CountWakeupFires(ctx, w.ID); err != nil {
+			return err
+		}
+		w.FireCount++
+		w.LastTaskID = run.task.ID
+		details := wakeupTriggerDetails(run.task, run.receipts)
+		details["outcome"] = wakeupOutcomeMerged
+		if err = note(wakeupActivityTriggered, details); err != nil {
+			return err
+		}
+	}
+	if len(taken) > 0 {
+		// A once rule has fired, and one at its cap stops after this firing,
+		// as after a run of its own; later inputs are dropped with it.
+		switch {
+		case w.Mode == "once":
+			if err = q.DiscardWakeupReceipts(ctx, w.ID); err != nil {
+				return err
+			}
+			if err = q.AdvanceIssueWakeup(ctx, db.AdvanceIssueWakeupParams{ID: w.ID, Enabled: false, LastTaskID: w.LastTaskID}); err != nil {
+				return err
+			}
+			if timedOut {
+				if err = markTimedOut(); err != nil {
+					return err
+				}
+			}
+			return commit()
+		case w.Enabled && w.MaxFires.Valid && w.FireCount >= w.MaxFires.Int32:
+			if err = q.DiscardWakeupReceipts(ctx, w.ID); err != nil {
+				return err
+			}
+			if err = q.AdvanceIssueWakeup(ctx, db.AdvanceIssueWakeupParams{ID: w.ID, Enabled: w.Enabled, NextFireAt: next, LastTaskID: w.LastTaskID}); err != nil {
+				return err
+			}
+			if err = q.PauseIssueWakeup(ctx, db.PauseIssueWakeupParams{ID: w.ID, PausedReason: pgtype.Text{String: wakeupPausedMaxFires, Valid: true}, BlockRuns: false}); err != nil {
+				return err
+			}
+			if err = note(wakeupActivityPaused, map[string]any{"reason": wakeupPausedMaxFires, "limit": w.MaxFires.Int32}); err != nil {
+				return err
+			}
+			return commit()
+		}
+		if err = q.AdvanceIssueWakeup(ctx, db.AdvanceIssueWakeupParams{ID: w.ID, Enabled: w.Enabled, NextFireAt: next, LastTaskID: w.LastTaskID}); err != nil {
+			return err
+		}
+	}
 	if len(receipts) == 0 {
 		if timedOut {
 			if err = markTimedOut(); err != nil {
