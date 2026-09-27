@@ -1245,10 +1245,14 @@ function ItemRow({ item }: { item: ChatTimelineItem }) {
 }
 
 function ToolCallRow({ item }: { item: ChatTimelineItem }) {
+  const { t } = useT("agents");
   const [open, setOpen] = useState(false);
   // Tool input is arbitrary JSON: an MCP tool can pass `query` or `path` as an
   // object (#8835), so the summary must come from the type-checked presenter.
-  const summary = traceToolArgSummary(item.input);
+  const summary = traceToolArgSummary(item.input, {
+    morePaths: (path, extraCount) =>
+      t(($) => $.transcript.patch_summary_more, { path, extra: extraCount }),
+  });
   const hasInput = item.input && Object.keys(item.input).length > 0;
 
   return (
