@@ -554,7 +554,7 @@
   },
   "labels": {
     "title": "标签",
-    "description": "用于任务。Skill 标签在 Skills 页面中管理。",
+    "description": "任务标签与 skill 标签互相独立。",
     "scopes": {
       "issue": "任务",
       "skill": "Skill"

@@ -554,7 +554,7 @@
   },
   "labels": {
     "title": "레이블",
-    "description": "태스크용 레이블입니다. 스킬 레이블은 스킬 페이지에서 관리합니다.",
+    "description": "태스크 라벨과 skill 라벨은 서로 별개입니다.",
     "scopes": {
       "issue": "태스크",
       "skill": "스킬"

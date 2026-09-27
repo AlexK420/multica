@@ -462,8 +462,8 @@ export function SkillListToolbar({
                     </div>
                   )}
                 </div>
-                {/* Skill labels are managed here, next to the skills they
-                    tag, rather than in Settings with the issue catalog. */}
+                {/* A shortcut to the skill label catalog, next to the
+                    skills it tags; Settings → Labels manages the same list. */}
                 <DropdownMenuSeparator className="my-0" />
                 <div className="p-1">
                   <DropdownMenuItem onClick={() => setManageLabelsOpen(true)}>

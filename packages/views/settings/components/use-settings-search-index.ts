@@ -126,6 +126,11 @@ export function useSettingsSearchIndex(
       { tab: "members", anchor: "invitations", title: t(($) => $.members.pending_label) },
       { tab: "members", anchor: "links", title: t(($) => $.members.share_links_label) },
       {
+        tab: "labels",
+        title: t(($) => $.page.tabs.labels),
+        description: t(($) => $.labels.description),
+      },
+      {
         tab: "properties",
         title: t(($) => $.page.tabs.properties),
         description: t(($) => $.properties.description),

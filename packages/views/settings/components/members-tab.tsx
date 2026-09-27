@@ -37,7 +37,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@multica/ui/components/ui/dialog";
-import { cn } from "@multica/ui/lib/utils";
 import { Badge } from "@multica/ui/components/ui/badge";
 import {
   AlertDialog,
@@ -90,6 +89,7 @@ import {
   SettingsCard,
   SettingsReadOnlyNotice,
   SettingsTab,
+  SettingsViewTabs,
 } from "./settings-layout";
 import { resolveSettingsLocation, settingsHref } from "./settings-navigation";
 import { formatStripeMinorAmount } from "./billing-format";
@@ -891,32 +891,12 @@ export function MembersTab() {
       ) : null}
       <section className="space-y-3">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div
-            role="tablist"
-            aria-label={t(($) => $.page.tabs.members)}
-            className="inline-flex w-fit items-center gap-0.5 rounded-lg bg-muted p-0.5"
-          >
-            {views.map((item) => (
-              <button
-                key={item.value}
-                type="button"
-                role="tab"
-                aria-selected={activeView === item.value}
-                onClick={() => setView(item.value)}
-                className={cn(
-                  "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-label font-medium transition-colors focus-visible:outline-2 focus-visible:outline-ring",
-                  activeView === item.value
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {item.label}{" "}
-                <span className="text-caption font-normal tabular-nums text-muted-foreground">
-                  {item.count}
-                </span>
-              </button>
-            ))}
-          </div>
+          <SettingsViewTabs
+            label={t(($) => $.page.tabs.members)}
+            items={views}
+            value={activeView}
+            onChange={setView}
+          />
           <div className="flex min-w-0 items-center gap-3">
             {seats && billingEnabled ? (
               <span className="shrink-0 text-caption text-muted-foreground">

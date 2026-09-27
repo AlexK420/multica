@@ -554,7 +554,7 @@
   },
   "labels": {
     "title": "ラベル",
-    "description": "タスク用のラベルです。スキルのラベルはスキルページで管理します。",
+    "description": "タスクと skill のラベルは別々です。",
     "scopes": {
       "issue": "タスク",
       "skill": "Skill"

@@ -278,6 +278,54 @@ export function SettingsRow({
   );
 }
 
+/** Segmented switch between the lists one settings page manages. */
+export function SettingsViewTabs<T extends string>({
+  label,
+  items,
+  value,
+  onChange,
+}: {
+  /** Accessible name of the tab list. */
+  label: string;
+  items: readonly { value: T; label: ReactNode; count?: number }[];
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label={label}
+      className="inline-flex w-fit items-center gap-0.5 rounded-lg bg-muted p-0.5"
+    >
+      {items.map((item) => (
+        <button
+          key={item.value}
+          type="button"
+          role="tab"
+          aria-selected={value === item.value}
+          onClick={() => onChange(item.value)}
+          className={cn(
+            "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-label font-medium transition-colors focus-visible:outline-2 focus-visible:outline-ring",
+            value === item.value
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {item.label}
+          {item.count !== undefined ? (
+            <>
+              {" "}
+              <span className="text-caption font-normal tabular-nums text-muted-foreground">
+                {item.count}
+              </span>
+            </>
+          ) : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /**
  * The one read-only explanation for workspace pages a member can see but not
  * change. It names who can make the change so the next step is obvious.

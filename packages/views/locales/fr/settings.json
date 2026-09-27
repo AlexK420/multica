@@ -557,7 +557,7 @@
   },
   "labels": {
     "title": "Étiquettes",
-    "description": "Étiquettes des tâches. Les étiquettes des skills se gèrent depuis la page Skills.",
+    "description": "Les étiquettes des tâches et des skills sont distinctes.",
     "scopes": {
       "issue": "Tâches",
       "skill": "Skills"

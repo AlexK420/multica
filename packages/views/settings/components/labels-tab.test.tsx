@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderWithI18n } from "../../test/i18n";
 import { LabelsTab } from "./labels-tab";
 import { LabelManager } from "../../labels/label-manager";
@@ -36,17 +37,23 @@ describe("Label catalogs", () => {
     queried.keys = [];
   });
 
-  // Settings manages the issue catalog only: skill labels live on the Skills
-  // page, and agent labels were removed from the product (MUL-5600) even
-  // though the backend still models the `agent` resource type.
-  it("manages only issue labels in Settings", () => {
+  // Agent labels were removed from the product (MUL-5600) even though the
+  // backend still models the `agent` resource type.
+  it("switches between the issue and skill catalogs, never agent labels", async () => {
+    const user = userEvent.setup();
     renderWithI18n(<LabelsTab />);
 
-    expect(queried.keys).toContainEqual(["labels", "workspace-1", "list", "issue"]);
-    expect(queried.keys.some((key) => key.includes("skill"))).toBe(false);
+    const issues = screen.getByRole("tab", { name: /Issues/ });
+    expect(issues).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: /Skills/ })).toHaveAttribute("aria-selected", "false");
+    expect(screen.queryByRole("tab", { name: /Agents/ })).toBeNull();
+
+    queried.keys = [];
+    await user.click(screen.getByRole("tab", { name: /Skills/ }));
+
+    expect(screen.getByRole("tab", { name: /Skills/ })).toHaveAttribute("aria-selected", "true");
+    expect(queried.keys).toContainEqual(["labels", "workspace-1", "list", "skill"]);
     expect(queried.keys.some((key) => key.includes("agent"))).toBe(false);
-    expect(screen.queryByRole("button", { name: /Skills/ })).toBeNull();
-    expect(screen.getByText(/Skills page/)).toBeInTheDocument();
   });
 
   it("manages the skill catalog where it is mounted for skills", () => {
