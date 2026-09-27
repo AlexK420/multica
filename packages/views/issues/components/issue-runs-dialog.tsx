@@ -221,7 +221,7 @@ function RunStats({ timeline }: { timeline: RunTimeline }) {
           </span>
         )}
         <span className="flex items-center gap-1.5">
-          <span aria-hidden className="h-2 w-3 rounded-[2px] bg-chart-2" />
+          <span aria-hidden className="h-2 w-3 rounded-xs bg-chart-2" />
           {t(($) => $.runs_timeline.legend_run)}
         </span>
       </div>
@@ -405,7 +405,7 @@ function RunTimelineChart({ timeline }: { timeline: RunTimeline }) {
                 <span
                   key={run.task.id}
                   className={cn(
-                    "absolute inset-y-0.5 min-w-[3px] rounded-[2px] transition-opacity",
+                    "absolute inset-y-0.5 min-w-[3px] rounded-xs transition-opacity",
                     runBarTone(run, run === peak),
                     hovered && run !== hovered && "opacity-35",
                   )}
@@ -591,7 +591,7 @@ function RunDayList({ timeline, issueId }: { timeline: RunTimeline; issueId: str
         <div className="flex justify-end gap-3 pt-3 text-micro text-muted-foreground">
           {COST_PARTS.map((part) => (
             <span key={part.key} className="flex items-center gap-1.5">
-              <span aria-hidden className={cn("size-2 rounded-[2px]", part.swatch)} />
+              <span aria-hidden className={cn("size-2 rounded-xs", part.swatch)} />
               {partLabel(part.key)}
             </span>
           ))}
@@ -776,7 +776,7 @@ function CostCell({ run, maxCost }: { run: TimelineRun; maxCost: number }) {
       <PopoverContent side="top" align="end" className="w-72 gap-1 text-caption">
         {COST_PARTS.map((part) => (
           <span key={part.key} className="flex items-center gap-2 tabular-nums">
-            <span aria-hidden className={cn("size-2 shrink-0 rounded-[2px]", part.swatch)} />
+            <span aria-hidden className={cn("size-2 shrink-0 rounded-xs", part.swatch)} />
             <span className="flex-1 text-muted-foreground">{partLabel(part.key)}</span>
             <span className="w-14 text-right text-muted-foreground">
               {formatTokens(tokenCount[part.key])}

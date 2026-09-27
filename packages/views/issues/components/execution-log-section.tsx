@@ -315,7 +315,7 @@ function StripBar({ run, maxCost }: { run: TimelineRun; maxCost: number }) {
   const bar =
     cost != null ? (
       <span
-        className="block w-full rounded-t-[2px] bg-chart-2 transition-colors group-hover/strip-bar:bg-chart-1"
+        className="block w-full rounded-t-xs bg-chart-2 transition-colors group-hover/strip-bar:bg-chart-1"
         style={{ height: Math.max(3, maxCost > 0 ? (cost / maxCost) * STRIP_HEIGHT : 3) }}
       />
     ) : (
