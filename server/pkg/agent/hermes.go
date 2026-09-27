@@ -46,14 +46,15 @@ var hermesBlockedArgs = map[string]blockedArgMode{
 // validation lives in the daemon-side resolver (execenv.ResolveHermesProfile).
 var hermesArgProfileRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
-// hermesValueFlags and hermesOptionalValueFlags mirror the value-taking flags
-// Hermes skips while scanning argv for -p/--profile, so a value like the `coder`
-// in `-m coder -p research` is never misread as the profile. Kept in sync with
-// _apply_profile_override.value_flags / optional_value_flags.
+// hermesValueFlags and hermesOptionalValueFlags mirror Hermes' top-level
+// value-taking flags, which it skips while scanning argv for -p/--profile, so a
+// value like the `coder` in `-m coder -p research` is never misread as the
+// profile. Kept in sync with hermes_cli._parser.top_level_value_flag_sets
+// (formerly the literal _apply_profile_override.value_flags).
 var hermesValueFlags = map[string]struct{}{
 	"-z": {}, "--oneshot": {}, "-m": {}, "--model": {}, "--provider": {},
-	"-t": {}, "--toolsets": {}, "-r": {}, "--resume": {}, "-s": {},
-	"--skills": {}, "--usage-file": {},
+	"--reasoning": {}, "-t": {}, "--toolsets": {}, "-r": {}, "--resume": {},
+	"-s": {}, "--skills": {}, "--usage-file": {}, "--in": {},
 }
 var hermesOptionalValueFlags = map[string]struct{}{"-c": {}, "--continue": {}}
 
@@ -137,38 +138,102 @@ func hermesInsideMcpAdd(args []string, index int) bool {
 }
 
 // hermesACPSubcommand is the subcommand the backend always launches with. It
-// sits between the runtime's launch prefix and the agent's custom args, and it
-// is an ordinary argv token to Hermes' own parser — which is why the daemon
-// cannot reason about a profile selection without it.
+// is the last token of the argv, after the runtime's launch prefix and the
+// agent's custom args, and it is an ordinary argv token to Hermes' own parser —
+// which is why the daemon cannot reason about a profile selection without it.
 const hermesACPSubcommand = "acp"
 
 // hermesCLIArgsFrom assembles the argv the backend passes after the executable
 // and its launch prefix, from custom args that are already filtered.
+//
+// Custom args go in front of `acp` because Hermes only accepts its global
+// flags there: `hermes acp --provider x` is an argparse usage error that exits
+// before the ACP handshake, while `hermes --provider x acp` launches (GH
+// #8878). The subcommand's own flags (`--accept-hooks`) parse in either
+// position, and jcode — the other CLI behind this protocol family — declares
+// its flags global, so this order is the one every caller can use.
 func hermesCLIArgsFrom(filteredCustomArgs []string) []string {
-	args := make([]string, 0, 1+len(filteredCustomArgs))
-	args = append(args, hermesACPSubcommand)
-	return append(args, filteredCustomArgs...)
+	args := make([]string, 0, len(filteredCustomArgs)+1)
+	args = append(args, filteredCustomArgs...)
+	return append(args, hermesACPSubcommand)
 }
 
 // hermesCLIArgs is what hermesBackend.Execute passes to the launch boundary.
-func hermesCLIArgs(customArgs []string, logger *slog.Logger) []string {
-	return hermesCLIArgsFrom(filterCustomArgs(customArgs, hermesBlockedArgs, logger))
+func hermesCLIArgs(launchPrefix, customArgs []string, logger *slog.Logger) []string {
+	custom := filterCustomArgs(customArgs, hermesBlockedArgs, logger)
+	return hermesCLIArgsFrom(dropHermesSubcommandCapture(launchPrefix, custom, logger))
+}
+
+// dropHermesSubcommandCapture removes a trailing custom arg that would take the
+// backend's `acp` token as its value.
+//
+// Custom args sit directly in front of the subcommand, so a value-taking flag
+// left without its value — a bare `--provider`, a bare `-p` — consumes `acp`
+// instead. Hermes then either selects a profile named `acp` or, with no
+// subcommand left, starts interactive chat on the daemon's pipe and never
+// answers the handshake, hanging the task until it times out. The flag has no
+// value to apply either way, so dropping it keeps the launch on ACP.
+//
+// The launch prefix is scanned too, so a custom arg that is itself the value
+// of a flag the prefix leaves open is paired the way Hermes pairs it.
+func dropHermesSubcommandCapture(launchPrefix, filteredCustomArgs []string, logger *slog.Logger) []string {
+	if len(filteredCustomArgs) == 0 {
+		return filteredCustomArgs
+	}
+	argv := Command{Prefix: launchPrefix}.Argv(filteredCustomArgs...)
+	if !hermesArgvAwaitsValue(argv) {
+		return filteredCustomArgs
+	}
+	last := len(filteredCustomArgs) - 1
+	if logger != nil {
+		logger.Warn("hermes: dropping trailing custom arg with no value; it would consume the acp subcommand",
+			"flag", unshellQuoteArg(filteredCustomArgs[last]))
+	}
+	return filteredCustomArgs[:last:last]
+}
+
+// hermesArgvAwaitsValue reports whether args end on a value-taking flag whose
+// value slot is still open, so the next token would be consumed as its value.
+// Flags pair with their values the way ParseHermesProfileArgs skips them.
+func hermesArgvAwaitsValue(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		arg := unshellQuoteArg(args[i])
+		if arg == "--" {
+			return false
+		}
+		_, required := hermesValueFlags[arg]
+		if required || arg == "-p" || arg == "--profile" {
+			if i+1 == len(args) {
+				return true
+			}
+			i++
+			continue
+		}
+		if _, ok := hermesOptionalValueFlags[arg]; ok {
+			if i+1 == len(args) {
+				return true
+			}
+			if !strings.HasPrefix(unshellQuoteArg(args[i+1]), "-") {
+				i++
+			}
+		}
+	}
+	return false
 }
 
 // HermesLaunchArgv returns the exact argv Hermes will parse: the runtime's
-// launch prefix, then `acp`, then the agent's custom args after the same
-// blocked-flag filtering the backend applies.
+// launch prefix, the agent's custom args after the same filtering the backend
+// applies, then `acp`.
 //
 // The daemon resolves the profile selection from this rather than from a
 // hand-assembled approximation. Concatenating prefix and custom args alone
 // silently disagrees with the real command line, because the `acp` token
-// participates in Hermes' scan: with fixed_args `--model` and custom_args
-// `-p research`, the approximation reads `-p` as `--model`'s value and finds
-// no selection, while the real `--model acp -p research` skips `--model acp`
-// and selects `research`. The overlay would then be seeded from the default
-// home while the process runs under a different profile's config.
+// participates in Hermes' scan: a launch prefix ending in a bare `-p`, with no
+// custom args after it, finds no selection in the approximation, while the real
+// `-p acp` selects a profile named `acp`. The overlay would then be seeded from the default home while
+// the process asks for a different profile.
 func HermesLaunchArgv(launchPrefix, customArgs []string, logger *slog.Logger) []string {
-	return Command{Prefix: launchPrefix}.Argv(hermesCLIArgs(customArgs, logger)...)
+	return Command{Prefix: launchPrefix}.Argv(hermesCLIArgs(launchPrefix, customArgs, logger)...)
 }
 
 // StripHermesProfileSelectors removes every profile selection from the argv
@@ -183,8 +248,9 @@ func HermesLaunchArgv(launchPrefix, customArgs []string, logger *slog.Logger) []
 // reasons, both of which leave a live selector behind if ignored:
 //
 //   - A selection can straddle the boundary. A launch prefix ending in a bare
-//     `-p` takes the backend's own `acp` token as its value, and neither region
-//     contains a complete selection to strip.
+//     `-p` takes the first custom arg — or, with none, the backend's own `acp`
+//     token — as its value, and neither region contains a complete selection
+//     to strip.
 //   - Removing one selection promotes the next. Hermes honours the first and
 //     ignores the rest, so a single pass can hand the job to a later
 //     occurrence — and with the prefix and custom args configured separately,
@@ -202,21 +268,20 @@ func StripHermesProfileSelectors(launchPrefix, customArgs []string, logger *slog
 		if !sel.Found {
 			return prefix, custom
 		}
-		acpIndex := len(prefix)
+		prefixLen, customEnd := len(prefix), len(prefix)+len(custom)
 		removed := false
 		// Walk back to front so earlier indices stay valid as tokens go.
 		for i := sel.ArgFrom + sel.ArgLen - 1; i >= sel.ArgFrom; i-- {
 			switch {
-			case i < acpIndex:
+			case i < prefixLen:
 				prefix = append(prefix[:i], prefix[i+1:]...)
 				removed = true
-			case i == acpIndex:
-				// Backend-owned; re-added at launch.
+			case i < customEnd:
+				j := i - prefixLen
+				custom = append(custom[:j], custom[j+1:]...)
+				removed = true
 			default:
-				if j := i - acpIndex - 1; j < len(custom) {
-					custom = append(custom[:j], custom[j+1:]...)
-					removed = true
-				}
+				// `acp`: backend-owned; re-added at launch.
 			}
 		}
 		if !removed {
@@ -287,7 +352,7 @@ func (b *hermesBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 
 	// Same assembly HermesLaunchArgv reproduces for the daemon, so the profile
 	// the overlay is seeded from is the one this argv actually selects.
-	hermesArgs := hermesCLIArgs(opts.CustomArgs, b.cfg.Logger)
+	hermesArgs := hermesCLIArgs(b.cfg.LaunchPrefix, opts.CustomArgs, b.cfg.Logger)
 	cmd := b.cfg.commandAt(execPath).exec(runCtx, hermesArgs...)
 	hideAgentWindow(cmd)
 	// What makes the shutdown below bounded. Wait waits on the direct child, and
@@ -298,7 +363,7 @@ func (b *hermesBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 	// Wait is what lets the forced shutdown join its readers at all. Same 10s
 	// the claude, codearts and antigravity backends use.
 	cmd.WaitDelay = 10 * time.Second
-	b.cfg.logAgentCommand(cmd, newAgentCommandLogArgs(hermesArgs, trustAgentCommandPositional(0, hermesACPSubcommand)))
+	b.cfg.logAgentCommand(cmd, newAgentCommandLogArgs(hermesArgs, trustAgentCommandPositional(len(hermesArgs)-1, hermesACPSubcommand)))
 	agentsMDPresent := false
 	if opts.Cwd != "" {
 		cmd.Dir = opts.Cwd

@@ -508,45 +508,81 @@ func TestZeroclawLaunchPrefixFiltersBlockedFlags(t *testing.T) {
 	}
 }
 
-// TestHermesLaunchArgvMatchesBackendAssembly is the root of the second-round
-// Hermes finding: the daemon must resolve the profile from the argv the backend
-// actually builds, not from a concatenation that leaves out `acp`.
-//
-// With fixed_args `--model` and custom_args `-p research`, the two disagree.
-// `--model` is a value-taking flag, so the approximation `--model -p research`
-// consumes `-p` as its value and finds no selection at all, while the real
-// `--model acp -p research` skips `--model acp` and selects `research`. Seeding
-// the overlay from the first answer while the process runs the second is a
-// silent config mismatch.
+// TestHermesLaunchArgvMatchesBackendAssembly: the daemon must resolve the
+// profile from the argv the backend actually builds — custom args ahead of the
+// `acp` subcommand, where Hermes accepts its global flags (GH #8878) — not from
+// a concatenation that leaves `acp` out.
 func TestHermesLaunchArgvMatchesBackendAssembly(t *testing.T) {
 	t.Parallel()
 
-	prefix := []string{"--model"}
-	custom := []string{"-p", "research"}
+	prefix := []string{"--yolo"}
+	custom := []string{"-p", "research", "--provider", "zai"}
 
 	argv := HermesLaunchArgv(prefix, custom, slog.Default())
-	if want := []string{"--model", "acp", "-p", "research"}; strings.Join(argv, "\x00") != strings.Join(want, "\x00") {
+	if want := []string{"--yolo", "-p", "research", "--provider", "zai", "acp"}; strings.Join(argv, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("HermesLaunchArgv = %v, want %v", argv, want)
 	}
 	// It must equal what the backend hands the launch boundary.
-	backend := Command{Prefix: prefix}.Argv(hermesCLIArgs(custom, slog.Default())...)
+	backend := Command{Prefix: prefix}.Argv(hermesCLIArgs(prefix, custom, slog.Default())...)
 	if strings.Join(argv, "\x00") != strings.Join(backend, "\x00") {
 		t.Fatalf("resolver argv %v diverges from backend argv %v", argv, backend)
 	}
-	sel := ParseHermesProfileArgs(argv)
-	if !sel.Found || sel.Name != "research" {
+	if sel := ParseHermesProfileArgs(argv); !sel.Found || sel.Name != "research" {
 		t.Fatalf("selection = %+v, want research — the profile the process really reads", sel)
 	}
-	// The approximation this replaced is what got it wrong.
-	if naive := ParseHermesProfileArgs(append(append([]string{}, prefix...), custom...)); naive.Found {
-		t.Fatalf("expected the prefix++custom approximation to disagree, got %+v", naive)
+
+	// `acp` participates in the scan: a prefix ending in a bare `-p` selects a
+	// profile named `acp`, which the prefix-only approximation cannot see.
+	bare := []string{"-p"}
+	if sel := ParseHermesProfileArgs(HermesLaunchArgv(bare, nil, slog.Default())); !sel.Found || sel.Name != "acp" {
+		t.Fatalf("selection = %+v, want the `acp` token hermes itself consumes", sel)
+	}
+	if naive := ParseHermesProfileArgs(bare); naive.Found {
+		t.Fatalf("expected the approximation without `acp` to disagree, got %+v", naive)
+	}
+}
+
+// TestHermesCLIArgsKeepSubcommandLast pins GH #8878: Hermes only accepts its
+// global flags ahead of the subcommand, so `hermes acp --provider zai` exits
+// with a usage error while `hermes --provider zai acp` launches. A custom arg
+// left without its value must not capture `acp` either — Hermes would read it
+// as that flag's value and start interactive chat instead of the ACP server.
+func TestHermesCLIArgsKeepSubcommandLast(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name   string
+		prefix []string
+		custom []string
+		want   []string
+	}{
+		{"no custom args", nil, nil, []string{"acp"}},
+		{"global flags go before acp", nil, []string{"--provider", "zai", "--yolo"}, []string{"--provider", "zai", "--yolo", "acp"}},
+		{"blocked acp is still filtered", nil, []string{"acp", "--yolo"}, []string{"--yolo", "acp"}},
+		{"inline value is complete", nil, []string{"--provider=zai"}, []string{"--provider=zai", "acp"}},
+		{"bare value flag is dropped", nil, []string{"--provider"}, []string{"acp"}},
+		{"bare value flag after a pair is dropped", nil, []string{"-m", "x", "--reasoning"}, []string{"-m", "x", "acp"}},
+		{"bare profile flag is dropped", nil, []string{"--yolo", "-p"}, []string{"--yolo", "acp"}},
+		{"bare optional-value flag is dropped", nil, []string{"-c"}, []string{"acp"}},
+		{"a flag that is itself a value is kept", nil, []string{"--model", "--provider"}, []string{"--model", "--provider", "acp"}},
+		{"prefix pairs with the first custom arg", []string{"--model"}, []string{"--provider"}, []string{"--provider", "acp"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := hermesCLIArgs(tc.prefix, tc.custom, slog.Default())
+			if strings.Join(got, "\x00") != strings.Join(tc.want, "\x00") {
+				t.Fatalf("hermesCLIArgs(%v, %v) = %v, want %v", tc.prefix, tc.custom, got, tc.want)
+			}
+		})
 	}
 }
 
 // TestStripHermesProfileSelectorsSpansRegionBoundary: a launch prefix ending in
-// a bare `-p` captures the backend's own `acp` token as its profile value.
-// Neither region holds a complete selection, so stripping them separately
-// leaves the selector live and the task walks out of the overlay.
+// a bare `-p` captures the first custom arg — or, with none, the backend's own
+// `acp` token — as its profile value. Neither region holds a complete
+// selection, so stripping them separately leaves the selector live and the
+// task walks out of the overlay.
 func TestStripHermesProfileSelectorsSpansRegionBoundary(t *testing.T) {
 	t.Parallel()
 
@@ -558,8 +594,15 @@ func TestStripHermesProfileSelectorsSpansRegionBoundary(t *testing.T) {
 	if len(prefix) != 0 {
 		t.Fatalf("the straddling `-p` must be removed from the prefix, got %v", prefix)
 	}
-	if strings.Join(custom, "\x00") != strings.Join([]string{"research", "--yolo"}, "\x00") {
-		t.Fatalf("custom args must survive intact, got %v", custom)
+	if strings.Join(custom, "\x00") != "--yolo" {
+		t.Fatalf("custom = %v, want only the captured value removed", custom)
+	}
+
+	// With no custom args the prefix captures `acp`, which the backend owns and
+	// re-adds at launch: only the flag goes.
+	prefix, custom = StripHermesProfileSelectors([]string{"wrapper-sub", "-p"}, nil, slog.Default())
+	if strings.Join(prefix, "\x00") != "wrapper-sub" || len(custom) != 0 {
+		t.Fatalf("prefix = %v, custom = %v, want only the `-p` removed", prefix, custom)
 	}
 }
 
