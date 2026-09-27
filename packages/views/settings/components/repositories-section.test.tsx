@@ -359,4 +359,16 @@ describe("repositoryIdentity", () => {
     expect(repositoryIdentity("https://GitHub.com/Acme/Repo.git")).toBe("github.com/Acme/Repo");
     expect(repositoryIdentity("git@github.com:acme/repo.git")).toBe("github.com/acme/repo");
   });
+
+  it("keeps a non-default port, since it can name another server", () => {
+    expect(repositoryIdentity("https://git.example.com:8443/acme/api.git")).not.toBe(
+      repositoryIdentity("https://git.example.com:9443/acme/api.git"),
+    );
+    expect(repositoryIdentity("https://git.example.com:443/acme/api.git")).toBe(
+      repositoryIdentity("git@git.example.com:acme/api.git"),
+    );
+    expect(repositoryIdentity("ssh://git@git.example.com:22/acme/api.git")).toBe(
+      repositoryIdentity("git@git.example.com:acme/api.git"),
+    );
+  });
 });

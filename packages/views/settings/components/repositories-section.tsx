@@ -74,10 +74,15 @@ import { GitHubMark } from "./github-mark";
 
 const EMPTY_REPOSITORIES: WorkspaceRepo[] = [];
 
+/** Default ports the URL parser keeps for schemes it does not know. */
+const DEFAULT_PORTS: Record<string, string> = { "ssh:": "22", "git:": "9418" };
+
 /**
  * Host + path identity of a clone URL, so HTTPS and SSH forms of the same
  * repository compare equal. Path casing is preserved: hosts are
- * case-insensitive, repository paths are not guaranteed to be.
+ * case-insensitive, repository paths are not guaranteed to be. A non-default
+ * port stays in the identity: it can name a different server, and treating
+ * two instances as one would block adding the second.
  */
 export function repositoryIdentity(rawURL: string): string | null {
   const value = rawURL.trim();
@@ -96,6 +101,9 @@ export function repositoryIdentity(rawURL: string): string | null {
     try {
       const parsed = new URL(value);
       host = parsed.hostname;
+      if (parsed.port && parsed.port !== DEFAULT_PORTS[parsed.protocol]) {
+        host = `${host}:${parsed.port}`;
+      }
       path = parsed.pathname;
     } catch {
       return null;
