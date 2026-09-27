@@ -168,6 +168,24 @@ describe("PullRequestList sidebar rows", () => {
     await waitForRender();
     expect(verdict()).toHaveTextContent("5/7");
     expect(verdict()).toHaveAttribute("title", "5/7 · 2 running");
+    expect(verdict().querySelector("svg")).toHaveClass("motion-safe:animate-spin");
+  });
+
+  it("stops the running spinner when the snapshot is stale", async () => {
+    mockPRs = [
+      makePR({
+        checks_rollup: "pending",
+        checks_total: 7,
+        checks_passed: 5,
+        checks_running: 2,
+        snapshot_stale: true,
+        snapshot_fetched_at: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+      }),
+    ];
+    renderList();
+    await waitForRender();
+    expect(verdict()).toHaveTextContent("5/7");
+    expect(verdict().querySelector("svg")).not.toHaveClass("motion-safe:animate-spin");
   });
 
   it("calls a PR ready only when the merge state is clean", async () => {

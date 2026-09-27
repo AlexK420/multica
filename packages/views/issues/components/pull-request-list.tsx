@@ -369,6 +369,8 @@ interface VerdictPillConfig {
   label: string;
   /** The longer form of the label, on hover. */
   title?: string;
+  /** The icon spins while the work it reports is live. */
+  spin?: boolean;
 }
 
 /**
@@ -500,7 +502,8 @@ function VerdictPill({ pill, stale, title }: { pill: VerdictPillConfig; stale: b
         stale ? "opacity-60" : null,
       )}
     >
-      <Icon className="size-3 shrink-0" />
+      {/* A stale snapshot can't vouch that the checks are still running. */}
+      <Icon className={cn("size-3 shrink-0", pill.spin && !stale ? "motion-safe:animate-spin" : null)} />
       {pill.label}
     </span>
   );
@@ -567,6 +570,7 @@ function getVerdictPill(verdict: PullRequestVerdict, t: IssuesT): VerdictPillCon
       return {
         icon: LoaderCircle,
         tone: "amber",
+        spin: true,
         label: `${verdict.passed}/${verdict.total}`,
         title: t(($) => $.detail.pull_request_checks_running, {
           passed: verdict.passed,
