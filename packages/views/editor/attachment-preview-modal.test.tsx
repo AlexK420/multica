@@ -127,7 +127,7 @@ vi.mock("../i18n", () => ({
           download: "Download",
           copy_image: "Copy image",
           image_copied: "Image copied",
-          copy_image_failed: "Failed to copy image",
+          copy_image_failed: "Couldn't copy image",
           canvas_label: "Image canvas",
         },
         canvas: {
@@ -711,7 +711,7 @@ describe("AttachmentPreviewModal — copy image (MUL-7759)", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Copy image" }));
 
-    await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("Failed to copy image"));
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("Couldn't copy image"));
     expect(toastMock.success).not.toHaveBeenCalled();
   });
 
