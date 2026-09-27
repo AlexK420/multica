@@ -335,6 +335,28 @@ export class TestApiClient {
     await this.authedFetch(`/api/issues/${id}`, { method: "DELETE" });
   }
 
+  async createComment(issueId: string, content: string) {
+    const res = await this.authedFetch(`/api/issues/${issueId}/comments`, {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    });
+    if (!res.ok) {
+      throw new Error(`create comment failed: ${res.status} ${await res.text()}`);
+    }
+    return (await res.json()) as { id: string };
+  }
+
+  /** Server-side issue search, for comparing against what the UI shows. */
+  async searchIssues(q: string, opts: { includeClosed?: boolean; limit?: number } = {}) {
+    const params = new URLSearchParams({ q, limit: String(opts.limit ?? 20) });
+    if (opts.includeClosed) params.set("include_closed", "true");
+    const res = await this.authedFetch(`/api/issues/search?${params}`);
+    if (!res.ok) {
+      throw new Error(`search issues failed: ${res.status} ${await res.text()}`);
+    }
+    return (await res.json()) as { issues: { id: string; identifier: string; title: string }[] };
+  }
+
   async updateIssue(id: string, updates: Record<string, unknown>) {
     const res = await this.authedFetch(`/api/issues/${id}`, {
       method: "PUT",
