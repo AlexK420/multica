@@ -571,6 +571,14 @@ func TestHermesCLIArgsPlaceFlagsAroundSubcommand(t *testing.T) {
 		{"bare optional-value flag is dropped", nil, []string{"-c", "--yes"}, []string{"acp", "--yes"}},
 		{"a flag that is itself a value is kept", nil, []string{"--model", "--provider"}, []string{"--model", "--provider", "acp"}},
 		{"prefix pairs with the first custom arg", []string{"--model"}, []string{"--provider"}, []string{"--provider", "acp"}},
+		// Behind `acp`, `--y` is `--yes`; in front, the root parser would read
+		// it as `--yolo` and turn off dangerous-command approval.
+		{"an abbreviated acp flag stays after acp", nil, []string{"--y"}, []string{"acp", "--y"}},
+		{"abbreviations acp resolves stay after acp", nil, []string{"--ye", "--acc", "--provider", "zai"}, []string{"--provider", "zai", "acp", "--ye", "--acc"}},
+		{"an ambiguous acp prefix keeps its position", nil, []string{"--se"}, []string{"acp", "--se"}},
+		{"an abbreviated global flag goes before acp", nil, []string{"--prov", "zai", "--y"}, []string{"--prov", "zai", "acp", "--y"}},
+		{"an inline abbreviated value is complete", nil, []string{"--prov=zai"}, []string{"--prov=zai", "acp"}},
+		{"a bare abbreviated value flag is dropped", nil, []string{"--yolo", "--prov"}, []string{"--yolo", "acp"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -583,6 +591,26 @@ func TestHermesCLIArgsPlaceFlagsAroundSubcommand(t *testing.T) {
 				t.Fatalf("hermesACPIndex(%v) = %d, want the subcommand's position", got, i)
 			}
 		})
+	}
+}
+
+// TestIsHermesACPSubcommandFlag: a token stays behind `acp` whenever the acp
+// subparser would read it as its own option — argparse resolves unambiguous
+// long-option abbreviations, so a string match would let `--y` (`--yes`) move
+// in front of `acp`, where the root parser reads it as `--yolo`.
+func TestIsHermesACPSubcommandFlag(t *testing.T) {
+	t.Parallel()
+
+	for token, want := range map[string]bool{
+		"--yes": true, "--y": true, "--ye": true, "-y": true, "-yh": true,
+		"--accept-hooks": true, "--acc": true, "--setup-browser": true,
+		"--se": true, "--yes=1": true, "--help": true,
+		"--yolo": false, "--provider": false, "--prov": false, "-p": false,
+		"--": false, "zai": false, "": false,
+	} {
+		if got := isHermesACPSubcommandFlag(token); got != want {
+			t.Errorf("isHermesACPSubcommandFlag(%q) = %v, want %v", token, got, want)
+		}
 	}
 }
 

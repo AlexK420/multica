@@ -143,13 +143,51 @@ func hermesInsideMcpAdd(args []string, index int) bool {
 // cannot reason about a profile selection without it.
 const hermesACPSubcommand = "acp"
 
-// hermesACPSubcommandFlags are the flags Hermes' `acp` subparser declares
-// (hermes_cli/subcommands/acp.py), all value-less. Argparse accepts them only
-// after the subcommand, so they keep that position; every other custom arg is
-// a global flag, which Hermes accepts only before it.
+// hermesACPSubcommandFlags are the options Hermes' `acp` subparser declares
+// (hermes_cli/subcommands/acp.py, plus argparse's own -h/--help), all
+// value-less. Argparse accepts them only after the subcommand, so they keep
+// that position; every other custom arg is a global flag, which Hermes accepts
+// only before it.
 var hermesACPSubcommandFlags = map[string]struct{}{
 	"--accept-hooks": {}, "--version": {}, "--check": {}, "--setup": {},
-	"--setup-browser": {}, "--yes": {}, "-y": {},
+	"--setup-browser": {}, "--yes": {}, "-y": {}, "--help": {}, "-h": {},
+}
+
+// isHermesACPSubcommandFlag reports whether the `acp` subparser would read
+// token as one of its own options, so it must stay behind the subcommand.
+//
+// Matching follows argparse, not string equality: Hermes keeps allow_abbrev, so
+// behind `acp` a `--y` is `--yes` — while in front of it the root parser reads
+// the same token as `--yolo`. A long token is the subparser's whenever it
+// prefixes one of its options; an ambiguous prefix (`--se`) is a usage error
+// there, exactly as it was before global flags moved. A short token is the
+// subparser's when its flag letter is, since `-yh` bundles `-y` and `-h`.
+func isHermesACPSubcommandFlag(token string) bool {
+	arg := unshellQuoteArg(token)
+	if strings.HasPrefix(arg, "--") {
+		return hermesLongOptionPrefix(arg, hermesACPSubcommandFlags)
+	}
+	if len(arg) >= 2 && arg[0] == '-' {
+		_, ok := hermesACPSubcommandFlags[arg[:2]]
+		return ok
+	}
+	return false
+}
+
+// hermesLongOptionPrefix reports whether a `--name` token (any inline
+// `=value` ignored) names one of the long options in options the way argparse
+// resolves it: exactly, or as a prefix of it.
+func hermesLongOptionPrefix(arg string, options map[string]struct{}) bool {
+	name, _, _ := strings.Cut(arg, "=")
+	if len(name) <= len("--") || !strings.HasPrefix(name, "--") {
+		return false
+	}
+	for option := range options {
+		if strings.HasPrefix(option, name) {
+			return true
+		}
+	}
+	return false
 }
 
 // hermesCLIArgsFrom assembles the argv the backend passes after the executable
@@ -175,7 +213,7 @@ func hermesCLIArgsLayout(filteredCustomArgs []string) (args []string, origin []i
 	origin = make([]int, 0, len(filteredCustomArgs)+1)
 	var subcommandFlags []int
 	for i := 0; i < len(filteredCustomArgs); {
-		if _, ok := hermesACPSubcommandFlags[unshellQuoteArg(filteredCustomArgs[i])]; ok {
+		if isHermesACPSubcommandFlag(filteredCustomArgs[i]) {
 			subcommandFlags = append(subcommandFlags, i)
 			i++
 			continue
@@ -200,7 +238,7 @@ func hermesCLIArgsLayout(filteredCustomArgs []string) (args []string, origin []i
 func hermesACPIndex(args []string) int {
 	i := len(args) - 1
 	for i > 0 {
-		if _, ok := hermesACPSubcommandFlags[unshellQuoteArg(args[i])]; !ok {
+		if !isHermesACPSubcommandFlag(args[i]) {
 			break
 		}
 		i--
@@ -241,16 +279,23 @@ func dropHermesSubcommandCapture(launchPrefix, filteredCustomArgs []string, logg
 }
 
 // hermesValueTokens reports how many tokens after args[i] Hermes reads as its
-// value, pairing flags with values the way ParseHermesProfileArgs skips them,
-// and whether args[i] is a value-taking flag with nothing left to take.
+// value, and whether args[i] is a value-taking flag with nothing left to take.
+// Beyond the exact names ParseHermesProfileArgs skips, it resolves long-flag
+// abbreviations the way argparse does (`--prov` is `--provider`), since those
+// consume the next token just the same.
 func hermesValueTokens(args []string, i int) (n int, open bool) {
 	arg := unshellQuoteArg(args[i])
 	rest := len(args) - i - 1
 	if arg == "--" {
 		return rest, false
 	}
-	_, required := hermesValueFlags[arg]
-	_, optional := hermesOptionalValueFlags[arg]
+	takes := func(options map[string]struct{}) bool {
+		if _, ok := options[arg]; ok {
+			return true
+		}
+		return !strings.Contains(arg, "=") && hermesLongOptionPrefix(arg, options)
+	}
+	required, optional := takes(hermesValueFlags), takes(hermesOptionalValueFlags)
 	switch {
 	case required || arg == "-p" || arg == "--profile":
 		if rest == 0 {
