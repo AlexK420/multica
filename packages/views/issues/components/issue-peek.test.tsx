@@ -28,7 +28,9 @@ vi.mock("./issue-detail", () => ({
     leadingAction: ReactNode;
     trailingActions: ReactNode;
     onDelete: () => void;
-  }) => (
+  }) => {
+    if (issueId === "boom") throw new Error("Could not render this issue");
+    return (
     <div data-testid="detail" data-variant={variant}>
       {issueId}
       {leadingAction}
@@ -37,7 +39,8 @@ vi.mock("./issue-detail", () => ({
         delete
       </button>
     </div>
-  ),
+    );
+  },
 }));
 
 const navigation: NavigationAdapter = {
@@ -58,10 +61,16 @@ function FakeBoard({ columns = COLUMNS }: { columns?: IssuePeekColumns }) {
   useEffect(() => {
     peek?.publishColumns(columns);
   }, [peek, columns]);
+  // One container per column, like the board: moving a card between columns
+  // remounts its element.
   return (
     <>
-      {columns.flat().map((id) => (
-        <FakeCard key={id} id={id} />
+      {columns.map((column, c) => (
+        <div key={c}>
+          {column.map((id) => (
+            <FakeCard key={id} id={id} />
+          ))}
+        </div>
       ))}
     </>
   );
@@ -212,6 +221,42 @@ describe("IssuePeekHost", () => {
     expect(panel()).toHaveTextContent("2 / 4");
     fireEvent.keyDown(document.body, { key: "j" });
     expect(screen.getByTestId("detail")).toHaveTextContent("i-1");
+  });
+
+  it("brings the peeked card back into view when it moves to another column", () => {
+    const scrollIntoView = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoView;
+    try {
+      // i-4 is alone in its column; the column to its right is empty.
+      const { setColumns } = renderHost([["i-1", "i-2", "i-3"], ["i-4"], []]);
+      openCard("i-4");
+      expect(scrollIntoView.mock.contexts.at(-1)).toBe(screen.getByText("card i-4"));
+
+      // Its status changes: it lands alone in the empty column. Its neighbours
+      // (none on either side) are unchanged, but its element is a new one.
+      scrollIntoView.mockClear();
+      act(() => setColumns([["i-1", "i-2", "i-3"], [], ["i-4"]]));
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByText("card i-4"));
+
+      // A reorder elsewhere leaves its element in place: no scroll.
+      scrollIntoView.mockClear();
+      act(() => setColumns([["i-3", "i-2", "i-1"], [], ["i-4"]]));
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
+  it("keeps a way to close the panel when the issue fails to render", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    renderHost([["i-1", "boom"]]);
+    openCard("boom");
+    expect(panel()).toHaveTextContent("Could not render this issue");
+    fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+    await waitForClosed();
+    vi.mocked(console.error).mockRestore();
   });
 
   it("steps across columns with H / L, keeping the row where it can", () => {

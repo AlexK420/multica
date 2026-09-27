@@ -21,6 +21,7 @@ import {
 } from "@multica/core/shortcuts";
 import { isImeComposing } from "@multica/core/utils";
 import { AppLink } from "../../navigation";
+import { PAGE_GUTTER } from "../../layout/page-header";
 import { ShortcutKeycaps } from "../../common/shortcut-keycaps";
 import { useT } from "../../i18n";
 import { IssueDetail } from "./issue-detail";
@@ -169,7 +170,21 @@ const IssuePeekPanel = memo(function IssuePeekPanel({ issueId }: { issueId: stri
       }}
     >
       {isPresent && <IssuePeekFollow issueId={issueId} panelRef={panelRef} />}
-      <ErrorBoundary resetKeys={[issueId]}>
+      <ErrorBoundary
+        resetKeys={[issueId]}
+        // The default fallback is a bare message card; here it would be a
+        // panel with no way to close it but Esc.
+        fallback={({ error }) => (
+          <div className="flex flex-1 min-h-0 flex-col">
+            <div className={cn("flex h-12 shrink-0 items-center justify-end gap-1 border-b", PAGE_GUTTER)}>
+              <IssuePeekTrailingActions issueId={issueId} />
+            </div>
+            <div className="flex flex-1 min-h-0 items-center justify-center px-4 text-center text-body text-muted-foreground">
+              {error.message}
+            </div>
+          </div>
+        )}
+      >
         <IssueDetail
           key={issueId}
           issueId={issueId}
@@ -241,11 +256,16 @@ function IssuePeekFollow({
     };
   }, [actions, panelRef]);
 
-  // Keep the peeked card in sight: scroll it into its column, then scroll the
+  // Keep the peeked issue in sight: scroll it into its column, then scroll the
   // board sideways if the panel covers it (the board reserves room for this
-  // while a peek is open — see BoardView). Re-runs when the card changes
-  // neighbours, i.e. when an edit made here moves it to another column.
-  const neighbours = `${position?.prevId ?? ""}|${position?.nextId ?? ""}`;
+  // while a peek is open — see BoardView).
+  //
+  // Checked on every order change, but acted on only when the element standing
+  // for the issue is a new one: another issue, the same card remounted in
+  // another column (an edit made here moved it), or another view. Reorders
+  // that leave the element in place never scroll, so a reader who scrolled
+  // the peeked card away is not pulled back by an unrelated update.
+  const revealedRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const panel = panelRef.current;
     const host = panel?.parentElement;
@@ -253,7 +273,8 @@ function IssuePeekFollow({
     const card = host.querySelector<HTMLElement>(
       `[${PEEK_TARGET_ATTR}="${CSS.escape(issueId)}"]`,
     );
-    if (!card) return;
+    if (!card || card === revealedRef.current) return;
+    revealedRef.current = card;
     card.scrollIntoView?.({ block: "nearest", inline: "nearest" });
     const scroller = card.closest<HTMLElement>("[data-board-scroller]");
     // offsetLeft, not the panel's rect: on the first frame the rect is still
@@ -263,7 +284,7 @@ function IssuePeekFollow({
     if (scroller && covered > 0) {
       scroller.scrollBy?.({ left: covered, behavior: reduceMotion ? "auto" : "smooth" });
     }
-  }, [issueId, neighbours, panelRef, reduceMotion]);
+  }, [issueId, position, panelRef, reduceMotion]);
 
   return null;
 }

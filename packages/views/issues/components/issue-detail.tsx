@@ -1157,6 +1157,7 @@ interface IssueDetailProps {
 export function IssueNotFound({
   showBackLink = true,
   leading,
+  trailing,
 }: {
   showBackLink?: boolean;
   /**
@@ -1166,6 +1167,8 @@ export function IssueNotFound({
    * there is none.
    */
   leading?: ReactNode;
+  /** Host controls at the end of the bar — the side peek's close button. */
+  trailing?: ReactNode;
 }) {
   const { t } = useT("issues");
   const backOrReplace = useBackOrReplace();
@@ -1173,8 +1176,11 @@ export function IssueNotFound({
 
   return (
     <div className="flex flex-1 min-h-0 flex-col">
-      {leading && (
-        <div className={cn("flex h-12 shrink-0 items-center gap-2 border-b", PAGE_GUTTER)}>{leading}</div>
+      {(leading || trailing) && (
+        <div className={cn("flex h-12 shrink-0 items-center gap-2 border-b", PAGE_GUTTER)}>
+          {leading}
+          {trailing && <div className="ml-auto flex shrink-0 items-center gap-1">{trailing}</div>}
+        </div>
       )}
       <div className="flex flex-1 min-h-0 flex-col items-center justify-center gap-3 text-body text-muted-foreground">
         <p>{t(($) => $.detail.not_found)}</p>
@@ -1200,8 +1206,9 @@ export function IssueNotFound({
  */
 export function IssueDetailSkeleton({
   leading,
+  trailing,
   sidebar = true,
-}: { leading?: ReactNode; sidebar?: boolean } = {}) {
+}: { leading?: ReactNode; trailing?: ReactNode; sidebar?: boolean } = {}) {
   return (
     <div className="flex flex-1 min-h-0 flex-col">
       {/* The way back is real from the first frame, not once the issue lands:
@@ -1215,6 +1222,7 @@ export function IssueDetailSkeleton({
             <Skeleton className="h-4 w-24" />
           </>
         )}
+        {trailing && <div className="ml-auto flex shrink-0 items-center gap-1">{trailing}</div>}
       </div>
       <div className="flex flex-1 min-h-0">
         {/* Same scrollbar-gutter as the loaded scroller below, so the skeleton
@@ -2557,11 +2565,13 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   );
 
   if (loading) {
-    return <IssueDetailSkeleton leading={leadingAction} sidebar={!isPeek} />;
+    // The host's trailing controls hold the peek's only close button, so the
+    // waiting and missing states carry them too.
+    return <IssueDetailSkeleton leading={leadingAction} trailing={trailingActions} sidebar={!isPeek} />;
   }
 
   if (!issue) {
-    return <IssueNotFound showBackLink={!onDelete} leading={leadingAction} />;
+    return <IssueNotFound showBackLink={!onDelete} leading={leadingAction} trailing={trailingActions} />;
   }
 
   const persistDescriptionSave = (
