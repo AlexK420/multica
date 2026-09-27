@@ -1149,6 +1149,37 @@ describe("IssueDetail (shared)", () => {
     expect(screen.queryByText("Properties")).not.toBeInTheDocument();
   });
 
+  it("renders the peek variant as one column with property pills and host actions", async () => {
+    const queryClient = createTestQueryClient();
+    render(
+      <I18nProvider locale="en" resources={TEST_RESOURCES}>
+        <QueryClientProvider client={queryClient}>
+          <IssueDetail
+            issueId="issue-1"
+            variant="peek"
+            leadingAction={<span data-testid="peek-nav" />}
+            trailingActions={<button type="button">Close preview</button>}
+          />
+        </QueryClientProvider>
+      </I18nProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Implement authentication")).toBeInTheDocument();
+    });
+
+    // No resizable sidebar: the properties become pills under the title.
+    expect(screen.queryByTestId("panel-group")).not.toBeInTheDocument();
+    expect(screen.queryByText("Properties")).not.toBeInTheDocument();
+    expect(screen.getByTestId("project-picker")).toBeInTheDocument();
+    expect(screen.getByText("High")).toBeInTheDocument();
+    // The host's controls replace the sidebar toggle.
+    expect(screen.getByTestId("peek-nav")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close preview" })).toBeInTheDocument();
+    // The header leaf names the issue by identifier only — the title is right below.
+    expect(screen.getByRole("link", { name: mockIssue.identifier })).toBeInTheDocument();
+  });
+
   it("pins the comment composer to the scroll viewport on a wide screen", async () => {
     const { container } = renderIssueDetail();
 
