@@ -170,6 +170,16 @@ describe("DraggableBoardCard side peek", () => {
     expect(navigation.push).toHaveBeenCalledWith("/acme/issues/issue-1");
   });
 
+  it("opens the full page in place on Shift+Click when the preference is peek", () => {
+    useIssueOpeningStore.getState().setOpenMode("peek");
+    renderCard();
+    // Handled here, not left to the browser (a new window on web).
+    expect(fireEvent.click(link(), { shiftKey: true })).toBe(false);
+    expect(navigation.push).toHaveBeenCalledWith("/acme/issues/issue-1");
+    expect(peek.open).not.toHaveBeenCalled();
+    expect(peek.toggle).not.toHaveBeenCalled();
+  });
+
   it("still navigates without a peek host when the preference is peek", () => {
     useIssueOpeningStore.getState().setOpenMode("peek");
     renderCard({ withPeek: false });

@@ -317,9 +317,10 @@
   "issue": {
     "opening": {
       "title": "Opening issues",
-      "click": "Clicking a card or row",
-      "page": "Open full page",
-      "peek": "Open side preview"
+      "click": "Clicking a card or row opens",
+      "page": "Full page",
+      "peek": "Side preview",
+      "hint": "Shift+Click opens the other one."
     },
     "description": "Choose which fields each create dialog keeps on its toolbar. Hidden fields stay available from the ⋯ menu and reappear while they hold a value.",
     "fields": {

@@ -434,7 +434,7 @@ describe("TableView cell editors under data refresh", () => {
     });
   });
 
-  it("uses the preferred peek for both titles and row space while preserving modifiers", async () => {
+  it("uses the preferred peek for both titles and row space; Shift opens the full page instead", async () => {
     useIssueOpeningStore.getState().setOpenMode("peek");
     serverIssues = [makeIssue("a", "Alpha task", "todo")];
     const peek = { open: vi.fn(), toggle: vi.fn(), close: vi.fn(), publishColumns: vi.fn() };
@@ -452,8 +452,10 @@ describe("TableView cell editors under data refresh", () => {
     expect(peek.open).toHaveBeenCalledTimes(2);
     expect(peek.open).toHaveBeenCalledWith("a");
     expect(navigationMocks.push).not.toHaveBeenCalled();
+    // In preview mode Shift+Click opens the other target: the full page, in place.
     fireEvent.click(title, { shiftKey: true });
-    expect(peek.toggle).toHaveBeenCalledWith("a");
+    expect(navigationMocks.push).toHaveBeenCalledWith("/test/issues/a");
+    expect(peek.toggle).not.toHaveBeenCalled();
     fireEvent.click(row, { metaKey: true });
     expect(navigationMocks.openInNewTab).toHaveBeenCalledWith("/test/issues/a", "MUL-a");
     expect(peek.open).toHaveBeenCalledTimes(2);

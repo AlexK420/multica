@@ -2,6 +2,8 @@
 
 import { createContext, useCallback, useContext, useMemo } from "react";
 import { useIssueOpeningStore, type IssueOpenMode } from "@multica/core/issues/stores/issue-opening-store";
+import { useWorkspacePaths } from "@multica/core/paths";
+import { useNavigation } from "../../navigation";
 
 /**
  * Side peek: Shift+Click (or Space) on an issue — a board or swimlane card, a
@@ -95,13 +97,20 @@ export function locateInColumns(
   return null;
 }
 
-/** Shift always peeks; plain clicks follow the preference. Modified clicks stay native. */
-export function isPeekClick(
+/**
+ * What a click on an issue card or row opens: a plain click opens the preferred
+ * target (Settings → Preferences), Shift+Click the other one, so either is one
+ * click away in both modes. `null` for clicks that keep their native link
+ * meaning: Cmd/Ctrl (+Shift) open tabs, Alt and non-primary buttons are the
+ * browser's.
+ */
+export function resolveIssueClick(
   event: Pick<MouseEvent, "button" | "shiftKey" | "metaKey" | "ctrlKey" | "altKey">,
   openMode: IssueOpenMode = "page",
-) {
-  return event.button === 0 && (event.shiftKey || openMode === "peek") &&
-    !event.metaKey && !event.ctrlKey && !event.altKey;
+): IssueOpenMode | null {
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey) return null;
+  if (!event.shiftKey) return openMode;
+  return openMode === "peek" ? "page" : "peek";
 }
 
 export const IssuePeekActionsContext = createContext<IssuePeekActions | null>(null);
@@ -130,20 +139,36 @@ export function useIssuePeekPosition() {
   return useContext(IssuePeekPositionContext);
 }
 
-/** Shared by card/row links and the table's non-link click targets. */
+/**
+ * Shared by card/row links and the table's non-link click targets. Returns
+ * whether it handled the click; when it did not, the caller's own navigation
+ * (a plain full-page open, or a tab) proceeds.
+ */
 export function useIssuePeekClick() {
   const peek = useIssuePeekActions();
   const openMode = useIssueOpeningStore((s) => s.openMode);
+  const { push } = useNavigation();
+  const paths = useWorkspacePaths();
   return useCallback((issueId: string, event?: React.MouseEvent) => {
     if (!peek || event?.defaultPrevented) return false;
-    if (event ? !isPeekClick(event, openMode) : openMode !== "peek") return false;
-    event?.preventDefault();
-    // An ordinary click opens (or keeps open) the issue. Only the explicit
-    // preview shortcut toggles it closed, matching Space.
-    if (event?.shiftKey) peek.toggle(issueId);
-    else peek.open(issueId);
-    return true;
-  }, [peek, openMode]);
+    const target = event ? resolveIssueClick(event, openMode) : openMode;
+    if (target === "peek") {
+      event?.preventDefault();
+      // A plain click opens (or keeps open) the issue. Shift+Click is the
+      // explicit preview gesture and toggles it closed again, like Space.
+      if (event?.shiftKey) peek.toggle(issueId);
+      else peek.open(issueId);
+      return true;
+    }
+    if (target === "page" && event?.shiftKey) {
+      // Shift+Click in preview mode opens the full page in place. Left alone,
+      // a link would hand Shift to the browser — a new window on web.
+      event.preventDefault();
+      push(paths.issueDetail(issueId));
+      return true;
+    }
+    return false;
+  }, [peek, openMode, push, paths]);
 }
 
 /** Empty outside a peek host, so other issue links retain normal navigation. */
