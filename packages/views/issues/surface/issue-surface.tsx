@@ -283,6 +283,10 @@ function IssueSurfaceContent({
             }
           />
         )}
+        {/* Every view opens the side peek on Shift+Click. The host wraps the
+            loading and empty states too, so a view switch that briefly shows
+            a skeleton keeps the peek open. */}
+        <IssuePeekHost>
         {/* A failed status catalog precedes loading/empty/content on purpose.
             Row fetching is suspended while it is down (a custom status filter
             cannot be routed without it), so every branch below would render an
@@ -324,11 +328,6 @@ function IssueSurfaceContent({
           )
         ) : (
           <div className={cn("flex flex-col flex-1 min-h-0", contentClassName)}>
-            {/* Board cards (board and swimlane) open the side peek on
-                Shift+Click; the other views have no peek to host. */}
-            <IssuePeekHost
-              enabled={controller.viewMode === "board" || controller.viewMode === "swimlane"}
-            >
             {controller.viewMode === "board" && (
               <BoardView
                 issues={issues}
@@ -386,9 +385,9 @@ function IssueSurfaceContent({
                 groupBranches={controller.groupBranches}
               />
             )}
-            </IssuePeekHost>
           </div>
         )}
+        </IssuePeekHost>
         {shouldShowBatchToolbar && (
           <BatchActionToolbar
             issues={

@@ -28,6 +28,7 @@ import {
   IssuePeekActionsContext,
   IssuePeekIdContext,
   IssuePeekPositionContext,
+  PEEK_TARGET_ATTR,
   locateInColumns,
   useIssuePeekActions,
   useIssuePeekPosition,
@@ -39,31 +40,32 @@ const NEXT_KEY = createShortcutChord("J");
 const PREV_KEY = createShortcutChord("K");
 const CLOSE_KEY = createShortcutChord("Escape");
 
+type Step = "prevId" | "nextId" | "leftId" | "rightId";
+// Vim keys work wherever focus is not in a text field; the arrows mirror them
+// unless the panel is being read (see IssuePeekFollow).
+const LETTER_STEPS: Record<string, Step> = { K: "prevId", J: "nextId", H: "leftId", L: "rightId" };
+const ARROW_STEPS: Record<string, Step> = {
+  ArrowUp: "prevId",
+  ArrowDown: "nextId",
+  ArrowLeft: "leftId",
+  ArrowRight: "rightId",
+};
+
 /**
- * Owns the surface's side peek: which issue is open, the board's column order
- * for J / K, and the floating panel itself. Wraps the surface content so the
- * panel can position against it — it floats over the board, below the page
- * header and toolbar, which stay usable while it is open.
+ * Owns the surface's side peek: which issue is open, the current view's order
+ * for keyboard stepping, and the floating panel itself. Wraps the surface
+ * content so the panel can position against it — it floats over the view,
+ * below the page header and toolbar, which stay usable while it is open.
  *
- * `enabled` is false for views without board cards (list, table, gantt);
- * switching to one of them closes the peek.
+ * Every view hosts it, so switching views keeps the peeked issue open; the new
+ * view publishes its own order.
  *
  * Besides a focused card's own Space (see DraggableBoardCard), Space peeks the
- * card under the pointer, so mouse users need not Tab to a card first.
+ * issue under the pointer, so mouse users need not Tab to it first.
  */
-export function IssuePeekHost({
-  enabled,
-  children,
-}: {
-  enabled: boolean;
-  children: ReactNode;
-}) {
+export function IssuePeekHost({ children }: { children: ReactNode }) {
   const [peekId, setPeekId] = useState<string | null>(null);
   const [columns, setColumns] = useState<IssuePeekColumns | null>(null);
-
-  useEffect(() => {
-    if (!enabled) setPeekId(null);
-  }, [enabled]);
 
   const actions = useMemo<IssuePeekActions>(
     () => ({
@@ -74,14 +76,13 @@ export function IssuePeekHost({
     }),
     [],
   );
-  const openId = enabled ? peekId : null;
+  const openId = peekId;
   const position = useMemo(() => locateInColumns(columns, openId), [columns, openId]);
 
   // Tracked from pointer events rather than queried with `:hover`, so the
   // card under a stationary pointer is known without a layout read.
   const hoveredCardRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!enabled) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== " " || event.defaultPrevented || event.repeat || isImeComposing(event)) return;
       if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
@@ -96,7 +97,7 @@ export function IssuePeekHost({
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [enabled, actions]);
+  }, [actions]);
 
   return (
     <IssuePeekActionsContext.Provider value={actions}>
@@ -107,7 +108,7 @@ export function IssuePeekHost({
             className="group/peek relative flex min-h-0 flex-1 flex-col [--issue-peek-width:520px]"
             onPointerOver={(event) => {
               hoveredCardRef.current =
-                (event.target as Element).closest("[data-board-card]")?.getAttribute("data-board-card") ||
+                (event.target as Element).closest(`[${PEEK_TARGET_ATTR}]`)?.getAttribute(PEEK_TARGET_ATTR) ||
                 null;
             }}
             onPointerLeave={() => {
@@ -183,7 +184,7 @@ const IssuePeekPanel = memo(function IssuePeekPanel({ issueId }: { issueId: stri
   );
 });
 
-/** The panel's keyboard (Esc, J / K) and keeping the peeked card in view. */
+/** The panel's keyboard (Esc, J / K / H / L, arrows) and keeping the peeked issue in view. */
 function IssuePeekFollow({
   issueId,
   panelRef,
@@ -200,6 +201,13 @@ function IssuePeekFollow({
   positionRef.current = position;
 
   useEffect(() => {
+    // Whether the reader's last click landed in the panel. Clicking panel text
+    // moves no focus, so this — not the key's target — is what says the arrows
+    // should scroll the panel rather than step through the view.
+    let readingPanel = false;
+    const onPointerDown = (event: PointerEvent) => {
+      readingPanel = !!panelRef.current?.contains(event.target as Node);
+    };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat || isImeComposing(event)) return;
       if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
@@ -212,20 +220,26 @@ function IssuePeekFollow({
         actions.close();
         return;
       }
-      const key = event.key.toUpperCase();
-      const target =
-        key === NEXT_KEY.key
-          ? positionRef.current?.nextId
-          : key === PREV_KEY.key
-            ? positionRef.current?.prevId
-            : undefined;
+      let step = LETTER_STEPS[event.key.toUpperCase()];
+      if (!step && event.key in ARROW_STEPS) {
+        const inPanel =
+          readingPanel || !!panelRef.current?.contains(event.target as Node);
+        // Composite widgets (tabs, radios, sliders) own their arrow keys.
+        if (inPanel || isArrowWidgetTarget(event.target)) return;
+        step = ARROW_STEPS[event.key];
+      }
+      const target = step ? positionRef.current?.[step] : null;
       if (!target) return;
       event.preventDefault();
       actions.open(target);
     };
+    document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [actions]);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [actions, panelRef]);
 
   // Keep the peeked card in sight: scroll it into its column, then scroll the
   // board sideways if the panel covers it (the board reserves room for this
@@ -237,7 +251,7 @@ function IssuePeekFollow({
     const host = panel?.parentElement;
     if (!panel || !host) return;
     const card = host.querySelector<HTMLElement>(
-      `[data-board-card="${CSS.escape(issueId)}"]`,
+      `[${PEEK_TARGET_ATTR}="${CSS.escape(issueId)}"]`,
     );
     if (!card) return;
     card.scrollIntoView?.({ block: "nearest", inline: "nearest" });
@@ -252,6 +266,13 @@ function IssuePeekFollow({
   }, [issueId, neighbours, panelRef, reduceMotion]);
 
   return null;
+}
+
+function isArrowWidgetTarget(target: EventTarget | null) {
+  return (
+    target instanceof Element &&
+    target.closest("[role='tab'], [role='radio'], [role='slider'], [role='spinbutton'], select") !== null
+  );
 }
 
 /** A focused control whose own Space must win over the hovered-card peek. */

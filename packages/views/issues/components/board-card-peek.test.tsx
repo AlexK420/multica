@@ -119,7 +119,7 @@ function renderCard({ withPeek = true, peekedId = null as string | null } = {}) 
 
 const link = () => screen.getByRole("link");
 const cardRoot = (container: HTMLElement) =>
-  container.querySelector<HTMLElement>('[data-board-card="issue-1"]')!;
+  container.querySelector<HTMLElement>('[data-peek-target="issue-1"]')!;
 
 describe("DraggableBoardCard side peek", () => {
   beforeEach(() => vi.clearAllMocks());

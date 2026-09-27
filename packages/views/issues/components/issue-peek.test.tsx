@@ -73,7 +73,7 @@ function FakeCard({ id }: { id: string }) {
   return (
     <button
       type="button"
-      data-board-card={id}
+      data-peek-target={id}
       data-peeked={peeked ? "" : undefined}
       onClick={() => peek?.toggle(id)}
     >
@@ -82,16 +82,16 @@ function FakeCard({ id }: { id: string }) {
   );
 }
 
-function renderHost(enabled = true) {
-  const ui = (on: boolean) => (
+function renderHost(columns: IssuePeekColumns = COLUMNS) {
+  const ui = (cols: IssuePeekColumns) => (
     <NavigationProvider value={navigation}>
-      <IssuePeekHost enabled={on}>
-        <FakeBoard />
+      <IssuePeekHost>
+        <FakeBoard columns={cols} />
       </IssuePeekHost>
     </NavigationProvider>
   );
-  const result = renderWithI18n(ui(enabled));
-  return { ...result, setEnabled: (on: boolean) => result.rerender(ui(on)) };
+  const result = renderWithI18n(ui(columns));
+  return { ...result, setColumns: (cols: IssuePeekColumns) => result.rerender(ui(cols)) };
 }
 
 const panel = () => screen.queryByRole("complementary", { name: "Issue preview" });
@@ -203,13 +203,52 @@ describe("IssuePeekHost", () => {
     );
   });
 
-  it("closes when the view stops hosting a peek", async () => {
-    const { setEnabled } = renderHost();
+  it("stays open when the view changes, stepping in the new view's order", () => {
+    const { setColumns } = renderHost();
+    openCard("i-2");
+    // e.g. board → list: one column in display order.
+    act(() => setColumns([["i-4", "i-2", "i-1", "i-3"]]));
+    expect(screen.getByTestId("detail")).toHaveTextContent("i-2");
+    expect(panel()).toHaveTextContent("2 / 4");
+    fireEvent.keyDown(document.body, { key: "j" });
+    expect(screen.getByTestId("detail")).toHaveTextContent("i-1");
+  });
+
+  it("steps across columns with H / L, keeping the row where it can", () => {
+    renderHost([["a1", "a2", "a3"], [], ["c1"], ["d1", "d2", "d3"]]);
+    openCard("a3");
+    // The empty column is skipped; the short one clamps to its last card.
+    fireEvent.keyDown(document.body, { key: "l" });
+    expect(screen.getByTestId("detail")).toHaveTextContent("c1");
+    fireEvent.keyDown(document.body, { key: "l" });
+    expect(screen.getByTestId("detail")).toHaveTextContent("d1");
+    fireEvent.keyDown(document.body, { key: "j" });
+    fireEvent.keyDown(document.body, { key: "h" });
+    expect(screen.getByTestId("detail")).toHaveTextContent("c1");
+    fireEvent.keyDown(document.body, { key: "h" });
+    expect(screen.getByTestId("detail")).toHaveTextContent("a1");
+  });
+
+  it("steps with the arrow keys, unless the reader clicked into the panel", () => {
+    renderHost();
     openCard("i-1");
-    act(() => setEnabled(false));
-    await waitForClosed();
-    act(() => setEnabled(true));
-    expect(panel()).toBeNull();
+    expect(fireEvent.keyDown(document.body, { key: "ArrowDown" })).toBe(false);
+    expect(screen.getByTestId("detail")).toHaveTextContent("i-2");
+    fireEvent.keyDown(document.body, { key: "ArrowRight" });
+    expect(screen.getByTestId("detail")).toHaveTextContent("i-4");
+    fireEvent.keyDown(document.body, { key: "ArrowLeft" });
+    expect(screen.getByTestId("detail")).toHaveTextContent("i-1");
+
+    // After a click inside the panel the arrows scroll it instead.
+    fireEvent.pointerDown(screen.getByTestId("detail"));
+    expect(fireEvent.keyDown(document.body, { key: "ArrowDown" })).toBe(true);
+    expect(screen.getByTestId("detail")).toHaveTextContent("i-1");
+    // J still steps, and a click back on the view hands the arrows back.
+    fireEvent.keyDown(document.body, { key: "j" });
+    expect(screen.getByTestId("detail")).toHaveTextContent("i-2");
+    fireEvent.pointerDown(screen.getByText("card i-4"));
+    fireEvent.keyDown(document.body, { key: "ArrowDown" });
+    expect(screen.getByTestId("detail")).toHaveTextContent("i-3");
   });
 
   it("peeks the card under the pointer on Space, and closes it on a second Space", async () => {
@@ -235,7 +274,7 @@ describe("IssuePeekHost", () => {
     expect(panel()).toBeNull();
     button.remove();
 
-    // Leaving the board forgets the hovered card.
+    // Leaving the view forgets the hovered card.
     // (FakeBoard renders its cards straight into the host wrapper.)
     fireEvent.pointerLeave(screen.getByText("card i-3").parentElement!);
     fireEvent.keyDown(document.body, { key: " " });

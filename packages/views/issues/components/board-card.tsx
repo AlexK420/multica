@@ -31,7 +31,12 @@ import { IssueAgentActivityIndicator } from "./issue-agent-activity-indicator";
 import { CustomStatusChip, useIsCustomStatus } from "./custom-status-chip";
 import { IssueDuplicateOfMarker } from "./issue-duplicates";
 import { useIssueSurfaceActionsOptional } from "../surface/actions-context";
-import { useIsIssuePeeked, useIssuePeekActions } from "../surface/peek-context";
+import {
+  PEEK_TARGET_ATTR,
+  useIsIssuePeeked,
+  useIssuePeekActions,
+  useIssuePeekLinkProps,
+} from "../surface/peek-context";
 function formatDate(date: string, locale: string): string {
   return formatDateOnly(date, { month: "short", day: "numeric" }, locale);
 }
@@ -355,6 +360,7 @@ export const DraggableBoardCard = memo(function DraggableBoardCard({
   const p = useWorkspacePaths();
   const peek = useIssuePeekActions();
   const peeked = useIsIssuePeeked(issue.id);
+  const peekLinkProps = useIssuePeekLinkProps(issue.id);
   const {
     attributes,
     listeners,
@@ -379,8 +385,8 @@ export const DraggableBoardCard = memo(function DraggableBoardCard({
       <div
         ref={setNodeRef}
         style={style}
-        // The value lets the side peek find this card to keep it in view.
-        data-board-card={issue.id}
+        data-board-card=""
+        {...{ [PEEK_TARGET_ATTR]: issue.id }}
         data-peeked={peeked ? "" : undefined}
         {...attributes}
         {...listeners}
@@ -403,26 +409,7 @@ export const DraggableBoardCard = memo(function DraggableBoardCard({
           href={p.issueDetail(issue.id)}
           newTabTitle={issue.identifier}
           className={`group block transition-colors ${isDragging ? "pointer-events-none" : ""}`}
-          // Shift+Click opens the side peek instead of navigating. On web this
-          // takes the gesture from the browser's "open in new window", which
-          // AppLink otherwise leaves alone; cmd/ctrl (+shift) still open tabs.
-          onMouseDown={
-            peek
-              ? (e) => {
-                  // Keep the shift-click from extending the text selection.
-                  if (e.shiftKey) e.preventDefault();
-                }
-              : undefined
-          }
-          onClick={
-            peek
-              ? (e) => {
-                  if (!e.shiftKey || e.metaKey || e.ctrlKey || e.altKey || e.button !== 0) return;
-                  e.preventDefault();
-                  peek.toggle(issue.id);
-                }
-              : undefined
-          }
+          {...peekLinkProps}
         >
           <BoardCardContent
             issue={issue}
