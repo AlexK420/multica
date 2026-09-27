@@ -105,17 +105,20 @@ export function PullRequestList({
   const useCollapse = prs.length >= PR_LIMIT_BEFORE_COLLAPSE;
   const expandedHead = useCollapse ? prs.slice(0, PR_LIMIT_BEFORE_COLLAPSE - 1) : prs;
   const collapsedTail = useCollapse ? prs.slice(PR_LIMIT_BEFORE_COLLAPSE - 1) : [];
+  // The repo name only tells rows apart when the PRs span repos; otherwise it
+  // spends the width the diff needs. The row tooltip keeps owner/repo#number.
+  const showRepo = new Set(prs.map((pr) => `${pr.repo_owner}/${pr.repo_name}`)).size > 1;
 
   return (
     <div className="space-y-1">
       {expandedHead.map((pr) => (
-        <PullRequestRow key={pr.id} pr={pr} identifier={identifier} actions={rowActions} />
+        <PullRequestRow key={pr.id} pr={pr} identifier={identifier} showRepo={showRepo} actions={rowActions} />
       ))}
       {useCollapse ? (
         <div className="space-y-1">
           {expanded
             ? collapsedTail.map((pr) => (
-                <PullRequestRow key={pr.id} pr={pr} identifier={identifier} actions={rowActions} />
+                <PullRequestRow key={pr.id} pr={pr} identifier={identifier} showRepo={showRepo} actions={rowActions} />
               ))
             : null}
           <button
@@ -369,18 +372,20 @@ interface VerdictPillConfig {
 }
 
 /**
- * One PR in the sidebar: the title, then `repo#number` with the diff size and
- * one verdict pill aligned right, so several PRs scan as a column. A failed PR
- * also lists what failed. Owner, author, the full title and exact counts live
- * in the row's tooltip.
+ * One PR in the sidebar: the title, then `#number` (`repo#number` when the
+ * list spans repos) with the diff size and one verdict pill aligned right, so
+ * several PRs scan as a column. A failed PR also lists what failed. Owner,
+ * author, the full title and exact counts live in the row's tooltip.
  */
 function PullRequestRow({
   pr,
   identifier,
+  showRepo,
   actions,
 }: {
   pr: GitHubPullRequest;
   identifier: string;
+  showRepo: boolean;
   actions: RowActions | null;
 }) {
   const { t } = useT("issues");
@@ -413,9 +418,8 @@ function PullRequestRow({
       </span>
     );
   } else if (showStats) {
-    // The diff yields first when the pill needs the room; repo#number never does.
     meta = (
-      <span className="min-w-0 overflow-hidden">
+      <span>
         <span className="text-emerald-600 dark:text-emerald-400">+{formatPullRequestDiffCount(pr.additions ?? 0)}</span>{" "}
         <span className="text-rose-600 dark:text-rose-400">−{formatPullRequestDiffCount(pr.deletions ?? 0)}</span>
       </span>
@@ -444,17 +448,20 @@ function PullRequestRow({
               {stripIssueKeyFromTitle(pr.title, identifier)}
             </p>
             <div className="mt-1 flex items-center gap-2">
-              <p className="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-micro text-muted-foreground tabular-nums">
-                <span className="shrink-0">
-                  {pr.repo_name}#{pr.number}
+              {/* The number and the pill never yield. Everything after the dot
+                  is one unit: short of room, it wraps whole onto the clipped
+                  second line instead of being cut mid-number (+312 → +31). */}
+              <p className="flex h-lh min-w-0 flex-1 flex-wrap items-center gap-x-1.5 overflow-hidden whitespace-nowrap text-micro text-muted-foreground tabular-nums">
+                <span className="min-w-0 truncate">
+                  {showRepo ? pr.repo_name : null}#{pr.number}
                 </span>
                 {meta ? (
-                  <>
-                    <span aria-hidden="true" className="shrink-0 text-faint-foreground">
+                  <span className="inline-flex min-w-0 items-center gap-1.5">
+                    <span aria-hidden="true" className="text-faint-foreground">
                       ·
                     </span>
                     {meta}
-                  </>
+                  </span>
                 ) : null}
               </p>
               {pill ? <VerdictPill pill={pill} stale={stale} title={staleTitle} /> : null}

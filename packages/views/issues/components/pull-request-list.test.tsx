@@ -305,11 +305,24 @@ describe("PullRequestList sidebar rows", () => {
     expect(screen.getByText("MUL-2: unrelated work")).toBeInTheDocument();
   });
 
-  it("shows the repo and number without the owner", async () => {
-    mockPRs = [makePR({ number: 42 })];
+  it("shows only the number when every PR is in one repo", async () => {
+    mockPRs = [makePR({ id: "a", number: 42 }), makePR({ id: "b", number: 43 })];
+    renderList();
+    await waitForRender();
+    expect(screen.getByText("#42")).toBeInTheDocument();
+    expect(screen.getByText("#43")).toBeInTheDocument();
+    expect(screen.queryByText("widget#42")).not.toBeInTheDocument();
+  });
+
+  it("shows the repo and number without the owner when the PRs span repos", async () => {
+    mockPRs = [
+      makePR({ id: "a", number: 42 }),
+      makePR({ id: "b", number: 7, repo_name: "gadget" }),
+    ];
     renderList();
     await waitForRender();
     expect(screen.getByText("widget#42")).toBeInTheDocument();
+    expect(screen.getByText("gadget#7")).toBeInTheDocument();
   });
 
   it("hides the diff size when all stats are 0 (legacy backend)", async () => {
