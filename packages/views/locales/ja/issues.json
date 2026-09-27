@@ -726,6 +726,7 @@
     "cost_output": "出力",
     "cost_cache_read": "キャッシュ読み取り",
     "cost_cache_write": "キャッシュ書き込み",
+    "cost_breakdown_aria": "費用の内訳：{{cost}}",
     "no_usage": "使用量の記録なし",
     "tooltip_total": "累計 {{cost}}",
     "note_unmapped": "{{models}} は価格が未登録です。トークンは集計されますが費用は含まれません。",

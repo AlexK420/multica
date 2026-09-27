@@ -229,15 +229,29 @@ export function niceTicks(max: number, maxCount = 4): number[] {
  * The run a pointer at time `t` is about: the one whose bar it is over, else
  * the one whose bar is nearest. Bars can be a few pixels wide, so the whole
  * chart snaps to runs rather than asking the pointer to land on one.
+ *
+ * Runs overlap — one agent's short run inside another's long one, or two
+ * agents at once — so "the bar it is over" can be several. The shortest wins:
+ * a bar fully inside another is otherwise unreachable, while the long one
+ * still owns every moment the short one doesn't cover. `agentId` narrows the
+ * choice to one lane when the pointer is over that lane.
  */
-export function nearestRunIndex(runs: readonly TimelineRun[], t: number): number {
+export function nearestRunIndex(
+  runs: readonly TimelineRun[],
+  t: number,
+  agentId?: string,
+): number {
   let best = -1;
   let bestDistance = Infinity;
+  let bestSpan = Infinity;
   runs.forEach((run, i) => {
+    if (agentId && run.task.agent_id !== agentId) return;
     const distance = t < run.startMs ? run.startMs - t : t > run.endMs ? t - run.endMs : 0;
-    if (distance < bestDistance) {
+    const span = run.endMs - run.startMs;
+    if (distance < bestDistance || (distance === bestDistance && span < bestSpan)) {
       best = i;
       bestDistance = distance;
+      bestSpan = span;
     }
   });
   return best;

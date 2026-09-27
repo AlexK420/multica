@@ -758,6 +758,7 @@
     "cost_output": "Sortie",
     "cost_cache_read": "Lecture du cache",
     "cost_cache_write": "Écriture du cache",
+    "cost_breakdown_aria": "Détail du coût : {{cost}}",
     "no_usage": "Aucune consommation enregistrée",
     "tooltip_total": "Cumul : {{cost}}",
     "note_unmapped": "Aucun tarif connu pour {{models}} ; leurs tokens sont comptés, mais pas leur coût.",

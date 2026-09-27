@@ -220,6 +220,34 @@ describe("nearestRunIndex", () => {
     expect(at("2026-09-25T00:00:00")).toBe("b");
   });
 
+  it("reaches a run nested inside a longer one", () => {
+    // Review repro: A 09:00–12:00 wraps B 10:00–11:00. Over B, B must win.
+    const { runs: nested } = buildRunTimeline(
+      [
+        makeTask({ id: "outer", started_at: "2026-09-24T09:00:00", completed_at: "2026-09-24T12:00:00" }),
+        makeTask({ id: "inner", started_at: "2026-09-24T10:00:00", completed_at: "2026-09-24T11:00:00" }),
+      ],
+      NOW,
+    );
+    const pick = (iso: string) => nested[nearestRunIndex(nested, new Date(iso).getTime())]!.task.id;
+    expect(pick("2026-09-24T10:30:00")).toBe("inner");
+    expect(pick("2026-09-24T09:30:00")).toBe("outer");
+    expect(pick("2026-09-24T11:30:00")).toBe("outer");
+  });
+
+  it("stays in the lane the pointer is over", () => {
+    const { runs: lanes } = buildRunTimeline(
+      [
+        makeTask({ id: "lambda", agent_id: "agent-lambda", started_at: "2026-09-24T10:00:00", completed_at: "2026-09-24T10:20:00" }),
+        makeTask({ id: "emacs", agent_id: "agent-emacs", started_at: "2026-09-24T09:00:00", completed_at: "2026-09-24T12:00:00" }),
+      ],
+      NOW,
+    );
+    const t = new Date("2026-09-24T10:10:00").getTime();
+    expect(lanes[nearestRunIndex(lanes, t)]!.task.id).toBe("lambda");
+    expect(lanes[nearestRunIndex(lanes, t, "agent-emacs")]!.task.id).toBe("emacs");
+  });
+
   it("has nothing to point at without runs", () => {
     expect(nearestRunIndex([], 0)).toBe(-1);
   });

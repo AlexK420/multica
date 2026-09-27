@@ -12,10 +12,10 @@ import {
   DialogTitle,
 } from "@multica/ui/components/ui/dialog";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@multica/ui/components/ui/tooltip";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@multica/ui/components/ui/popover";
 import { useActorName } from "@multica/core/workspace/hooks";
 import { useCustomPricingStore } from "@multica/core/runtimes/custom-pricing-store";
 import { ActorAvatar } from "../../common/actor-avatar";
@@ -297,9 +297,13 @@ function RunTimelineChart({ timeline }: { timeline: RunTimeline }) {
     const rect = event.currentTarget.getBoundingClientRect();
     if (rect.width <= 0) return;
     const t = d0 + ((event.clientX - rect.left) / rect.width) * (d1 - d0);
-    const index = nearestRunIndex(timeline.runs, t);
+    // Over a lane, only that lane's runs are candidates — the pointer is on a
+    // specific agent's row. Over the curve, any agent's run can answer.
+    const lane = (event.target as Element).closest?.("[data-lane]");
+    const index = nearestRunIndex(timeline.runs, t, lane?.getAttribute("data-lane") ?? undefined);
     setHoverIndex(index >= 0 ? index : null);
   };
+
 
   return (
     <div
@@ -395,7 +399,7 @@ function RunTimelineChart({ timeline }: { timeline: RunTimeline }) {
 
         <div className={cn("space-y-1.5", plotHeight > 0 && "mt-3")}>
           {timeline.lanes.map((lane) => (
-            <div key={lane.agentId} className="relative h-3.5 rounded-xs bg-muted/60">
+            <div key={lane.agentId} data-lane={lane.agentId} className="relative h-3.5 rounded-xs bg-muted/60">
               {lane.runs.map((run) => (
                 <span
                   key={run.task.id}
@@ -708,6 +712,7 @@ function RunListRow({
 }
 
 function CostCell({ run, maxCost }: { run: TimelineRun; maxCost: number }) {
+  const { t } = useT("issues");
   const partLabel = useCostPartLabel();
   const usage = run.usage!;
   const breakdown = run.breakdown!;
@@ -719,18 +724,28 @@ function CostCell({ run, maxCost }: { run: TimelineRun; maxCost: number }) {
     cacheWrite: usage.cacheWrite,
   };
 
+  // A real button, not a hover-only tooltip: the split is the detail the old
+  // table's four token columns carried, so keyboard and touch users need a way
+  // to it too. Pointer users still get it on hover.
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={<span />}
-        className="flex items-center justify-end gap-2"
+    <Popover>
+      <PopoverTrigger
+        openOnHover
+        delay={150}
+        render={
+          <button
+            type="button"
+            aria-label={t(($) => $.runs_timeline.cost_breakdown_aria, { cost: formatUsd(usage.cost) })}
+          />
+        }
+        className="flex items-center justify-end gap-2 rounded-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         <span className="flex w-20 justify-start">
           <CostBar breakdown={breakdown} total={usage.cost} widthPx={(share / 100) * COST_TRACK_PX} />
         </span>
         <span className="w-14 text-right font-medium tabular-nums">{formatUsd(usage.cost)}</span>
-      </TooltipTrigger>
-      <TooltipContent className="max-w-80 flex-col items-stretch gap-1 py-2">
+      </PopoverTrigger>
+      <PopoverContent side="top" align="end" className="w-72 gap-1 text-caption">
         {COST_PARTS.map((part) => (
           <span key={part.key} className="flex items-center gap-2 tabular-nums">
             <span aria-hidden className={cn("size-2 shrink-0 rounded-[2px]", part.swatch)} />
@@ -746,8 +761,8 @@ function CostCell({ run, maxCost }: { run: TimelineRun; maxCost: number }) {
             {usage.models.join(", ")}
           </span>
         )}
-      </TooltipContent>
-    </Tooltip>
+      </PopoverContent>
+    </Popover>
   );
 }
 

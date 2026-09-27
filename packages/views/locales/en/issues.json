@@ -758,6 +758,7 @@
     "cost_output": "Output",
     "cost_cache_read": "Cache read",
     "cost_cache_write": "Cache write",
+    "cost_breakdown_aria": "Cost breakdown: {{cost}}",
     "no_usage": "No usage recorded",
     "tooltip_total": "Total so far {{cost}}",
     "note_unmapped": "No price on file for {{models}}; their tokens are counted but their cost is not.",

@@ -726,6 +726,7 @@
     "cost_output": "输出",
     "cost_cache_read": "缓存读",
     "cost_cache_write": "缓存写",
+    "cost_breakdown_aria": "费用明细：{{cost}}",
     "no_usage": "没有用量记录",
     "tooltip_total": "累计 {{cost}}",
     "note_unmapped": "{{models}} 没有维护价格，token 已计入，费用未计入。",

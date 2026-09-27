@@ -209,6 +209,40 @@ describe("IssueRunsDialog", () => {
     expect(within(plot).queryByText(/Total so far/)).not.toBeInTheDocument();
   });
 
+  it("picks the run on the lane under the pointer when runs overlap", () => {
+    // Review repro: a short Emacs run inside a long Lambda run.
+    open([
+      makeTask({ id: "long", agent_id: "agent-lambda", trigger_summary: "Long run", started_at: "2026-09-27T09:00:00", completed_at: "2026-09-27T12:00:00", usage: [usage()] }),
+      makeTask({ id: "short", agent_id: "agent-emacs", trigger_summary: "Short run", started_at: "2026-09-27T10:00:00", completed_at: "2026-09-27T11:00:00", usage: [usage({ output_tokens: 200_000 })] }),
+    ]);
+    const plot = screen.getByRole("img").children[1] as HTMLElement;
+    plot.getBoundingClientRect = () => ({ left: 0, width: 1000, top: 0, height: 200, right: 1000, bottom: 200, x: 0, y: 0, toJSON: () => ({}) });
+    const lane = (agentId: string) => plot.querySelector(`[data-lane="${agentId}"]`) as HTMLElement;
+    // The x of 10:30 on the chart's padded domain.
+    const [d0, d1] = [new Date("2026-09-27T09:00:00").getTime(), new Date("2026-09-27T12:00:00").getTime()];
+    const pad = (d1 - d0) * 0.02;
+    const x = ((new Date("2026-09-27T10:30:00").getTime() - (d0 - pad)) / (d1 - d0 + 2 * pad)) * 1000;
+
+    fireEvent.pointerMove(lane("agent-lambda"), { clientX: x });
+    expect(within(plot).getByText("Long run")).toBeInTheDocument();
+
+    fireEvent.pointerMove(lane("agent-emacs"), { clientX: x });
+    expect(within(plot).getByText("Short run")).toBeInTheDocument();
+  });
+
+  it("opens a run's cost split from a real button, not hover alone", () => {
+    open([makeTask({ usage: [usage()] })]);
+
+    // Focusable (keyboard) and clickable (touch); the review found a span.
+    const button = screen.getByRole("button", { name: "Cost breakdown: $25.00" });
+    expect(button).not.toHaveAttribute("tabindex", "-1");
+    expect(screen.queryByText("claude-opus-5")).not.toBeInTheDocument();
+
+    fireEvent.click(button);
+    expect(screen.getByText("claude-opus-5")).toBeInTheDocument();
+    expect(screen.getByText("1M")).toBeInTheDocument();
+  });
+
   it("keeps the whole trigger reachable when one line truncates it", () => {
     const long = "把之前拆出去的三个子任务都合并回这个 PR，conditions / history / runaway protection 一起做完再提交";
     open([makeTask({ trigger_comment_id: "comment-1", trigger_summary: long, usage: [usage()] })]);
