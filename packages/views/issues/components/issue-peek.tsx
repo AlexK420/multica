@@ -1,0 +1,283 @@
+"use client";
+
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { ChevronDown, ChevronUp, Maximize2, X } from "lucide-react";
+import { Button, buttonVariants } from "@multica/ui/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@multica/ui/components/ui/tooltip";
+import { ErrorBoundary } from "@multica/ui/components/common/error-boundary";
+import { cn } from "@multica/ui/lib/utils";
+import { useModalStore } from "@multica/core/modals";
+import { useWorkspacePaths } from "@multica/core/paths";
+import {
+  createShortcutChord,
+  isEditableShortcutTarget,
+  isPortalLayerShortcutTarget,
+} from "@multica/core/shortcuts";
+import { isImeComposing } from "@multica/core/utils";
+import { AppLink } from "../../navigation";
+import { ShortcutKeycaps } from "../../common/shortcut-keycaps";
+import { useT } from "../../i18n";
+import { IssueDetail } from "./issue-detail";
+import {
+  IssuePeekActionsContext,
+  IssuePeekIdContext,
+  IssuePeekPositionContext,
+  locateInColumns,
+  useIssuePeekActions,
+  useIssuePeekPosition,
+  type IssuePeekActions,
+  type IssuePeekColumns,
+} from "../surface/peek-context";
+
+const NEXT_KEY = createShortcutChord("J");
+const PREV_KEY = createShortcutChord("K");
+const CLOSE_KEY = createShortcutChord("Escape");
+
+/**
+ * Owns the surface's side peek: which issue is open, the board's column order
+ * for J / K, and the floating panel itself. Wraps the surface content so the
+ * panel can position against it — it floats over the board, below the page
+ * header and toolbar, which stay usable while it is open.
+ *
+ * `enabled` is false for views without board cards (list, table, gantt);
+ * switching to one of them closes the peek.
+ */
+export function IssuePeekHost({
+  enabled,
+  children,
+}: {
+  enabled: boolean;
+  children: ReactNode;
+}) {
+  const [peekId, setPeekId] = useState<string | null>(null);
+  const [columns, setColumns] = useState<IssuePeekColumns | null>(null);
+
+  useEffect(() => {
+    if (!enabled) setPeekId(null);
+  }, [enabled]);
+
+  const actions = useMemo<IssuePeekActions>(
+    () => ({
+      open: (issueId) => setPeekId(issueId),
+      toggle: (issueId) => setPeekId((current) => (current === issueId ? null : issueId)),
+      close: () => setPeekId(null),
+      publishColumns: setColumns,
+    }),
+    [],
+  );
+  const openId = enabled ? peekId : null;
+  const position = useMemo(() => locateInColumns(columns, openId), [columns, openId]);
+
+  return (
+    <IssuePeekActionsContext.Provider value={actions}>
+      <IssuePeekIdContext.Provider value={openId}>
+        <IssuePeekPositionContext.Provider value={position}>
+          <div
+            data-peek-open={openId ? "" : undefined}
+            className="group/peek relative flex min-h-0 flex-1 flex-col [--issue-peek-width:520px]"
+          >
+            {children}
+            {openId && <IssuePeekPanel issueId={openId} />}
+          </div>
+        </IssuePeekPositionContext.Provider>
+      </IssuePeekIdContext.Provider>
+    </IssuePeekActionsContext.Provider>
+  );
+}
+
+// Memoized, and blind to the column order: the host re-renders on every board
+// reorder (a drag publishes columns on each hover), and none of that may reach
+// IssueDetail. What does follow the order lives in IssuePeekFollow.
+const IssuePeekPanel = memo(function IssuePeekPanel({ issueId }: { issueId: string }) {
+  const { t } = useT("issues");
+  const actions = useIssuePeekActions()!;
+  const panelRef = useRef<HTMLElement>(null);
+
+  return (
+    <aside
+      ref={panelRef}
+      aria-label={t(($) => $.peek.panel_label)}
+      data-issue-peek=""
+      className={cn(
+        "absolute right-2 top-2 z-30 flex w-[min(var(--issue-peek-width),calc(100%-1rem))] flex-col overflow-hidden",
+        "rounded-xl bg-background shadow-[var(--floating-shadow)] ring-1 ring-surface-border",
+        // Stops above the chat launcher, which owns the dashboard's
+        // bottom-right corner — the panel's composer would sit under it.
+        "above-chat-launcher",
+        "animate-in fade-in slide-in-from-right-4 duration-150 motion-reduce:animate-none",
+      )}
+    >
+      <IssuePeekFollow issueId={issueId} panelRef={panelRef} />
+      <ErrorBoundary resetKeys={[issueId]}>
+        <IssueDetail
+          key={issueId}
+          issueId={issueId}
+          variant="peek"
+          defaultSidebarOpen={false}
+          leadingAction={<IssuePeekNav />}
+          trailingActions={<IssuePeekTrailingActions issueId={issueId} />}
+          onDelete={actions.close}
+        />
+      </ErrorBoundary>
+    </aside>
+  );
+});
+
+/** The panel's keyboard (Esc, J / K) and keeping the peeked card in view. */
+function IssuePeekFollow({
+  issueId,
+  panelRef,
+}: {
+  issueId: string;
+  panelRef: RefObject<HTMLElement | null>;
+}) {
+  const actions = useIssuePeekActions()!;
+  const position = useIssuePeekPosition();
+
+  // Read through a ref so the listener is bound once, not on every step.
+  const positionRef = useRef(position);
+  positionRef.current = position;
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat || isImeComposing(event)) return;
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      if (isEditableShortcutTarget(event.target)) return;
+      if (isPortalLayerShortcutTarget(event.target)) return;
+      if (useModalStore.getState().modal) return;
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        actions.close();
+        return;
+      }
+      const key = event.key.toUpperCase();
+      const target =
+        key === NEXT_KEY.key
+          ? positionRef.current?.nextId
+          : key === PREV_KEY.key
+            ? positionRef.current?.prevId
+            : undefined;
+      if (!target) return;
+      event.preventDefault();
+      actions.open(target);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [actions]);
+
+  // Keep the peeked card in sight: scroll it into its column, then scroll the
+  // board sideways if the panel covers it (the board reserves room for this
+  // while a peek is open — see BoardView). Re-runs when the card changes
+  // neighbours, i.e. when an edit made here moves it to another column.
+  const neighbours = `${position?.prevId ?? ""}|${position?.nextId ?? ""}`;
+  useEffect(() => {
+    const panel = panelRef.current;
+    const host = panel?.parentElement;
+    if (!panel || !host) return;
+    const card = host.querySelector<HTMLElement>(
+      `[data-board-card="${CSS.escape(issueId)}"]`,
+    );
+    if (!card) return;
+    card.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    const scroller = card.closest<HTMLElement>("[data-board-scroller]");
+    // offsetLeft, not the panel's rect: on the first frame the rect is still
+    // shifted by the slide-in animation.
+    const panelLeft = host.getBoundingClientRect().left + panel.offsetLeft;
+    const covered = card.getBoundingClientRect().right - (panelLeft - 16);
+    if (scroller && covered > 0) scroller.scrollBy?.({ left: covered, behavior: "smooth" });
+  }, [issueId, neighbours, panelRef]);
+
+  return null;
+}
+
+/** Previous / next card in the peeked issue's board column. */
+function IssuePeekNav() {
+  const { t } = useT("issues");
+  const actions = useIssuePeekActions()!;
+  const position = useIssuePeekPosition();
+  const steps = [
+    { label: t(($) => $.peek.previous), shortcut: PREV_KEY, icon: ChevronUp, target: position?.prevId },
+    { label: t(($) => $.peek.next), shortcut: NEXT_KEY, icon: ChevronDown, target: position?.nextId },
+  ];
+
+  return (
+    <div className="flex shrink-0 items-center">
+      {steps.map(({ label, shortcut, icon: Icon, target }) => (
+        <Tooltip key={shortcut.key}>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground"
+                aria-label={label}
+                disabled={!target}
+                onClick={() => target && actions.open(target)}
+              >
+                <Icon />
+              </Button>
+            }
+          />
+          <TooltipContent side="bottom">
+            {label}
+            <ShortcutKeycaps shortcut={shortcut} decorative className="ml-1.5" />
+          </TooltipContent>
+        </Tooltip>
+      ))}
+      {position && (
+        <span className="ml-1 text-caption tabular-nums text-muted-foreground">
+          {`${position.index} / ${position.total}`}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function IssuePeekTrailingActions({ issueId }: { issueId: string }) {
+  const { t } = useT("issues");
+  const actions = useIssuePeekActions()!;
+  const paths = useWorkspacePaths();
+
+  return (
+    <>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <AppLink
+              href={paths.issueDetail(issueId)}
+              aria-label={t(($) => $.peek.open_full_page)}
+              className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }), "text-muted-foreground")}
+            />
+          }
+        >
+          <Maximize2 />
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{t(($) => $.peek.open_full_page)}</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="text-muted-foreground"
+              aria-label={t(($) => $.peek.close)}
+              onClick={actions.close}
+            />
+          }
+        >
+          <X />
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          {t(($) => $.peek.close)}
+          <ShortcutKeycaps shortcut={CLOSE_KEY} decorative className="ml-1.5" />
+        </TooltipContent>
+      </Tooltip>
+    </>
+  );
+}

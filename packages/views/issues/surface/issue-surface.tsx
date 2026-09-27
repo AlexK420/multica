@@ -40,6 +40,7 @@ import { TableView } from "../components/table-view";
 import { useT } from "../../i18n";
 import { IssueContextMenuProvider } from "../actions";
 import { IssueSurfaceActionsProvider } from "./actions-context";
+import { IssuePeekHost } from "../components/issue-peek";
 import { IssueSurfaceSelectionProvider } from "./selection-context";
 import type { IssueCreateDefaults, IssueSurfaceProps } from "./types";
 import {
@@ -323,6 +324,11 @@ function IssueSurfaceContent({
           )
         ) : (
           <div className={cn("flex flex-col flex-1 min-h-0", contentClassName)}>
+            {/* Board cards (board and swimlane) open the side peek on
+                Shift+Click; the other views have no peek to host. */}
+            <IssuePeekHost
+              enabled={controller.viewMode === "board" || controller.viewMode === "swimlane"}
+            >
             {controller.viewMode === "board" && (
               <BoardView
                 issues={issues}
@@ -380,6 +386,7 @@ function IssueSurfaceContent({
                 groupBranches={controller.groupBranches}
               />
             )}
+            </IssuePeekHost>
           </div>
         )}
         {shouldShowBatchToolbar && (
