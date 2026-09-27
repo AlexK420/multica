@@ -112,7 +112,6 @@ const BUILT_IN_IN_REVIEW = entry({
   position: 0,
 });
 
-// Two switches now render (show archived, PR auto-complete); name the one meant.
 const archivedToggle = () =>
   screen.queryByRole("switch", { name: new RegExp(`^${en.issue_statuses.show_archived.split(" (")[0]}`) });
 
@@ -135,11 +134,11 @@ describe("IssueStatusesTab", () => {
     const QA = entry({ key: "qa", name: "QA" });
     const badgeLink = () => screen.getByText(en.issue_statuses.pr_auto_complete_badge).closest("a");
 
-    it("badges Done by default and links to the rule on this page", () => {
+    it("badges Done by default and links to the rule on the Code page", () => {
       catalog = [BUILT_IN_DONE, QA];
       render(<IssueStatusesTab />);
       expect(screen.getAllByText(en.issue_statuses.pr_auto_complete_badge)).toHaveLength(1);
-      expect(badgeLink()?.getAttribute("href")).toBe("/acme/settings?tab=issue-statuses&section=pr-merge-status");
+      expect(badgeLink()?.getAttribute("href")).toBe("/acme/settings?tab=code&section=pr-merge-status");
       expect(badgeLink()?.closest(".group\\/row")).toHaveTextContent(en.issue_statuses.built_in_descriptions.done);
     });
 
@@ -465,16 +464,5 @@ describe("IssueStatusesTab", () => {
     await user.click(edit);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.queryByRole("alertdialog")).toBeNull();
-  });
-
-  it("offers the PR merge rule as an automatic transition", () => {
-    catalog = [BUILT_IN_IN_REVIEW];
-    render(<IssueStatusesTab />);
-    const section = screen.getByRole("region", {
-      name: en.issue_statuses.auto_transitions.title,
-    });
-    expect(
-      within(section).getByRole("combobox", { name: en.pr_merge_status.label }),
-    ).toBeInTheDocument();
   });
 });

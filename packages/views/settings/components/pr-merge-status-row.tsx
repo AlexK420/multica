@@ -34,14 +34,15 @@ const TARGET_CATEGORIES: { category: IssueStatusCategory; builtIns: string[] }[]
 ];
 
 /**
- * The status a merge moves issues to, and the statuses it may move them to.
- * Shared by the editor on Statuses & transitions and the read-only summary on
- * the Code page so both agree on what an archived choice means.
+ * "After PRs merge, move the issue to" (MUL-7726): the one PR merge rule,
+ * shared by GitHub and self-hosted providers. It lives on the Code page with
+ * the other pull request rules and only affects merges from now on.
  */
-export function usePRMergeStatus() {
+export function PRMergeStatusRow({ canManage }: { canManage: boolean }) {
   const { t } = useT("settings");
   const workspace = useCurrentWorkspace();
   const wsId = useWorkspaceId();
+  const qc = useQueryClient();
   const catalog = useIssueStatuses(wsId);
   const statusLabel = useStatusLabel(wsId);
 
@@ -75,19 +76,6 @@ export function usePRMergeStatus() {
       </>
     );
 
-  return { value, groups, renderOption, statusLabel };
-}
-
-/**
- * "After PRs merge, move the issue to" (MUL-7726): the one PR merge rule,
- * shared by GitHub and self-hosted providers. It lives with the other
- * automatic transitions and only affects merges from now on.
- */
-export function PRMergeStatusRow({ canManage }: { canManage: boolean }) {
-  const { t } = useT("settings");
-  const workspace = useCurrentWorkspace();
-  const qc = useQueryClient();
-  const { value, groups, renderOption, statusLabel } = usePRMergeStatus();
   const [saving, setSaving] = useState(false);
 
   async function persist(next: string) {

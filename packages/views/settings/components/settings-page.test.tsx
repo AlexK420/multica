@@ -210,7 +210,7 @@ describe("SettingsPage information architecture", () => {
     const workspace = within(nav()).getByRole("region", { name: /Acme/ });
     const issues = within(workspace).getByRole("group", { name: "Issues & workflow" });
     expect(
-      within(issues).getByRole("link", { name: "Statuses & transitions" }),
+      within(issues).getByRole("link", { name: "Issue Statuses" }),
     ).toBeInTheDocument();
     const connections = within(workspace).getByRole("group", {
       name: "Connections & extensions",

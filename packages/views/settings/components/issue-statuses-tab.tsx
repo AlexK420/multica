@@ -107,12 +107,9 @@ import { useStatusLabel } from "../../issues/utils/status-label";
 import { useT } from "../../i18n";
 import { AppLink, useNavigation } from "../../navigation";
 import {
-  SettingsCard,
   SettingsReadOnlyNotice,
-  SettingsSection,
   SettingsTab,
 } from "./settings-layout";
-import { PRMergeStatusRow } from "./pr-merge-status-row";
 import { settingsHref } from "./settings-navigation";
 
 /**
@@ -167,10 +164,10 @@ export function IssueStatusesTab() {
     return members.find((m) => m.user_id === currentUser.id)?.role ?? null;
   }, [members, currentUser]);
   const isAdmin = myRole === "owner" || myRole === "admin";
-  // The status a merge moves issues to (MUL-7726) is set in the Automatic
-  // transitions section below; its row carries a badge pointing there.
+  // The status a merge moves issues to is set on the Code page (MUL-7726);
+  // its row carries a badge linking there.
   const mergeTarget = derivePRMergeStatus(useCurrentWorkspace());
-  const mergeSettingsHref = settingsHref(navigation.pathname, navigation.searchParams, "issue-statuses", {
+  const mergeSettingsHref = settingsHref(navigation.pathname, navigation.searchParams, "code", {
     section: "pr-merge-status",
   });
 
@@ -200,59 +197,48 @@ export function IssueStatusesTab() {
   };
 
   return (
-    <SettingsTab title={t(($) => $.page.tabs.issue_statuses)} scope="workspace">
+    <SettingsTab
+      title={t(($) => $.page.tabs.issue_statuses)}
+      description={isAdmin ? t(($) => $.issue_statuses.reorder_hint) : undefined}
+      scope="workspace"
+      actions={
+        // Offered only once the workspace has something archived. A
+        // permanently disabled "Show archived (0)" is a control that can
+        // never do anything.
+        archivedCount > 0 ? (
+          <label className="flex items-center gap-2 text-caption text-muted-foreground">
+            {t(($) => $.issue_statuses.show_archived, { count: archivedCount })}
+            <Switch checked={showArchived} onCheckedChange={setShowArchived} />
+          </label>
+        ) : undefined
+      }
+    >
       {myRole && !isAdmin ? <SettingsReadOnlyNotice wsId={wsId} /> : null}
-      <SettingsSection
-        title={t(($) => $.issue_statuses.statuses_title)}
-        description={isAdmin ? t(($) => $.issue_statuses.reorder_hint) : undefined}
-        anchor="statuses"
-        action={
-          // Offered only once the workspace has something archived. A
-          // permanently disabled "Show archived (0)" is a control that can
-          // never do anything.
-          archivedCount > 0 ? (
-            <label className="flex items-center gap-2 text-caption text-muted-foreground">
-              {t(($) => $.issue_statuses.show_archived, { count: archivedCount })}
-              <Switch checked={showArchived} onCheckedChange={setShowArchived} />
-            </label>
-          ) : undefined
-        }
-      >
-        {isLoading ? (
-          <div className="rounded-lg border border-surface-border bg-card px-4 py-12 text-center text-body text-muted-foreground">
-            {t(($) => $.issue_statuses.loading)}
-          </div>
-        ) : (
-          // The four categories are sections of a single
-          // workflow, and separate borders made them read as unrelated
-          // settings.
-          <div className="overflow-hidden rounded-lg border border-surface-border bg-card">
-            {groups.map((group) => (
-              <CategorySection
-                key={`${wsId}:${group.category}`}
-                category={group.category}
-                entries={group.entries}
-                canManage={isAdmin}
-                mergeTarget={mergeTarget}
-                mergeSettingsHref={mergeSettingsHref}
-                onCreate={() => setCreateCategory(group.category)}
-                onEdit={(entry) => setEditing(entry)}
-                onArchive={(entry) => { setPendingArchive(entry); setArchiveOpen(true); }}
-                onViewIssues={viewIssues}
-              />
-            ))}
-          </div>
-        )}
-      </SettingsSection>
-
-      <SettingsSection
-        title={t(($) => $.issue_statuses.auto_transitions.title)}
-        anchor="auto-transitions"
-      >
-        <SettingsCard>
-          <PRMergeStatusRow canManage={isAdmin} />
-        </SettingsCard>
-      </SettingsSection>
+      {isLoading ? (
+        <div className="rounded-lg border border-surface-border bg-card px-4 py-12 text-center text-body text-muted-foreground">
+          {t(($) => $.issue_statuses.loading)}
+        </div>
+      ) : (
+        // The four categories are sections of a single
+        // workflow, and separate borders made them read as unrelated
+        // settings.
+        <div className="overflow-hidden rounded-lg border border-surface-border bg-card">
+          {groups.map((group) => (
+            <CategorySection
+              key={`${wsId}:${group.category}`}
+              category={group.category}
+              entries={group.entries}
+              canManage={isAdmin}
+              mergeTarget={mergeTarget}
+              mergeSettingsHref={mergeSettingsHref}
+              onCreate={() => setCreateCategory(group.category)}
+              onEdit={(entry) => setEditing(entry)}
+              onArchive={(entry) => { setPendingArchive(entry); setArchiveOpen(true); }}
+              onViewIssues={viewIssues}
+            />
+          ))}
+        </div>
+      )}
 
       <StatusEditorDialog
         open={createCategory !== null}

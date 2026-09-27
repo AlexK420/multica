@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowRight, MoreHorizontal, Pause, Play, Unplug } from "lucide-react";
-import { Button, buttonVariants } from "@multica/ui/components/ui/button";
+import { MoreHorizontal, Pause, Play, Unplug } from "lucide-react";
+import { Button } from "@multica/ui/components/ui/button";
 import { Switch } from "@multica/ui/components/ui/switch";
 import {
   AlertDialog,
@@ -31,7 +31,6 @@ import { workspaceKeys } from "@multica/core/workspace/queries";
 import { deriveGitHubSettings, githubInstallationsOptions } from "@multica/core/github";
 import { api } from "@multica/core/api";
 import type { Workspace } from "@multica/core/types";
-import { AppLink, useNavigation } from "../../navigation";
 import { useT } from "../../i18n";
 import {
   SettingsCard,
@@ -44,8 +43,7 @@ import { GitHubMark } from "./github-mark";
 import { VCSConnectionRows } from "./code-vcs";
 import { HostMark, HostStatus } from "./code-host";
 import { RepositoriesSection } from "./repositories-section";
-import { settingsHref } from "./settings-navigation";
-import { usePRMergeStatus } from "./pr-merge-status-row";
+import { PRMergeStatusRow } from "./pr-merge-status-row";
 
 type GitHubSettingsKey =
   | "github_enabled"
@@ -297,7 +295,7 @@ export function CodeTab() {
               aria-label={t(($) => $.github.feature_co_author_label)}
             />
           </SettingsRow>
-          <PRMergeStatusSummary />
+          <PRMergeStatusRow canManage={isManager} />
         </SettingsCard>
       </SettingsSection>
 
@@ -327,37 +325,5 @@ export function CodeTab() {
         </AlertDialogContent>
       </AlertDialog>
     </SettingsTab>
-  );
-}
-
-/**
- * The merge rule is an issue-workflow setting owned by Statuses & transitions;
- * the Code page shows its current value and links there instead of editing a
- * second copy.
- */
-function PRMergeStatusSummary() {
-  const { t } = useT("settings");
-  const navigation = useNavigation();
-  const { value, renderOption } = usePRMergeStatus();
-  return (
-    <SettingsRow label={t(($) => $.pr_merge_status.label)}>
-      <span className="flex items-center gap-3 text-body">
-        <span className="flex items-center gap-1.5 [&_svg]:size-3.5">
-          {renderOption(value)}
-        </span>
-        <AppLink
-          href={settingsHref(
-            navigation.pathname,
-            navigation.searchParams,
-            "issue-statuses",
-            { section: "pr-merge-status" },
-          )}
-          className={buttonVariants({ variant: "ghost", size: "sm" })}
-        >
-          {t(($) => $.code.edit_in_statuses)}
-          <ArrowRight />
-        </AppLink>
-      </span>
-    </SettingsRow>
   );
 }

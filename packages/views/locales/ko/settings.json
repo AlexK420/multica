@@ -79,10 +79,6 @@
       "cancelled": "진행하지 않기로 함."
     },
     "pr_auto_complete_badge": "PR 병합 시 자동 설정",
-    "statuses_title": "상태",
-    "auto_transitions": {
-      "title": "자동 전환"
-    },
     "built_in_locked": "기본 상태는 시스템 동작에 쓰이므로 편집하거나 보관할 수 없습니다. 순서는 바꿀 수 있습니다."
   },
   "quick_actions": {
@@ -375,7 +371,7 @@
       "labs": "실험실",
       "members": "멤버",
       "labels": "레이블",
-      "issue_statuses": "상태 및 전환",
+      "issue_statuses": "태스크 상태",
       "properties": "속성",
       "quick_actions": "퀵 액션",
       "plugins": "플러그인",
@@ -1388,8 +1384,7 @@
   "code": {
     "hosting_title": "코드 호스팅",
     "pr_linking_title": "풀 리퀘스트와 태스크",
-    "github_actions": "GitHub 작업",
-    "edit_in_statuses": "\"상태 및 전환\"에서 변경"
+    "github_actions": "GitHub 작업"
   },
   "channels": {
     "breadcrumb": "탐색 경로"

@@ -79,10 +79,6 @@
       "cancelled": "Decided not to do."
     },
     "pr_auto_complete_badge": "Set when PRs merge",
-    "statuses_title": "Statuses",
-    "auto_transitions": {
-      "title": "Automatic transitions"
-    },
     "built_in_locked": "Built-in statuses drive system behavior, so they can't be edited or archived. You can still reorder them."
   },
   "quick_actions": {
@@ -375,7 +371,7 @@
       "labs": "Labs",
       "members": "Members",
       "labels": "Labels",
-      "issue_statuses": "Statuses & transitions",
+      "issue_statuses": "Issue Statuses",
       "properties": "Properties",
       "quick_actions": "Quick Actions",
       "plugins": "Plugins",
@@ -1396,8 +1392,7 @@
   "code": {
     "hosting_title": "Code hosting",
     "pr_linking_title": "Pull requests & issues",
-    "github_actions": "GitHub actions",
-    "edit_in_statuses": "Change in Statuses & transitions"
+    "github_actions": "GitHub actions"
   },
   "channels": {
     "breadcrumb": "Breadcrumb"

@@ -35,7 +35,7 @@ The **Pull requests & issues** section of **Settings → Code** has these settin
 | PR sidebar | Shows linked pull requests in issue detail. |
 | Co-authored-by | Adds `Co-authored-by: multica-agent <github@multica.ai>` to commits created by agents. |
 | Auto-link PRs | Links a PR to the issue whose identifier is in its branch name or title, or follows a closing keyword in its body. |
-| After PRs merge, move the issue to | What merging every PR linked to an issue does: move it to a status (`Done` by default) or leave it alone. Set on **Settings → Statuses & transitions**; the Code page shows the current choice. See [When merged PRs move an issue](#when-merged-prs-move-an-issue). |
+| After PRs merge, move the issue to | What merging every PR linked to an issue does: move it to a status (`Done` by default) or leave it alone. See [When merged PRs move an issue](#when-merged-prs-move-an-issue). |
 | **PR card → CI & mergeability** | For each linked PR, Multica fetches an authenticated GitHub API snapshot and mirrors its **CI status** and **mergeability** onto the card (see **What the PR card shows** below). |
 
 
@@ -86,7 +86,7 @@ Click an entry to open the PR on GitHub. Turning off the **PR sidebar** only hid
 
 ## When merged PRs move an issue
 
-A merged PR doesn't necessarily mean the issue is finished, so the workspace decides what a merge does: **Settings → Statuses & transitions → Automatic transitions**. Pick `Done` (the default for new workspaces), another started or done status — a custom one such as *Awaiting regression* works too — or **Don't change**. Workspaces that existed before this setting keep their behavior: if merging didn't always complete their issues, they start on **Don't change**.
+A merged PR doesn't necessarily mean the issue is finished, so the workspace decides what a merge does: **Settings → Code → After PRs merge, move the issue to**. Pick `Done` (the default for new workspaces), another started or done status — a custom one such as *Awaiting regression* works too — or **Don't change**. Workspaces that existed before this setting keep their behavior: if merging didn't always complete their issues, they start on **Don't change**.
 
 An issue moves to the chosen status when all of the following hold:
 

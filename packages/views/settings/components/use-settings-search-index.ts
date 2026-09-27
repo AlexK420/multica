@@ -126,17 +126,6 @@ export function useSettingsSearchIndex(
       { tab: "members", anchor: "invitations", title: t(($) => $.members.pending_label) },
       { tab: "members", anchor: "links", title: t(($) => $.members.share_links_label) },
       {
-        tab: "issue-statuses",
-        anchor: "auto-transitions",
-        title: t(($) => $.issue_statuses.auto_transitions.title),
-      },
-      {
-        tab: "issue-statuses",
-        anchor: "pr-merge-status",
-        title: t(($) => $.pr_merge_status.label),
-        description: t(($) => $.pr_merge_status.description),
-      },
-      {
         tab: "properties",
         title: t(($) => $.page.tabs.properties),
         description: t(($) => $.properties.description),
@@ -174,6 +163,12 @@ export function useSettingsSearchIndex(
         tab: "code",
         anchor: "co-author",
         title: t(($) => $.github.feature_co_author_label),
+      },
+      {
+        tab: "code",
+        anchor: "pr-merge-status",
+        title: t(($) => $.pr_merge_status.label),
+        description: t(($) => $.pr_merge_status.description),
       },
       ...CHANNEL_INTEGRATIONS.map((channel) => ({
         tab: "channels",

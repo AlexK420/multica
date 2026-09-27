@@ -79,10 +79,6 @@
       "cancelled": "Abandonné."
     },
     "pr_auto_complete_badge": "Définie à la fusion des PR",
-    "statuses_title": "États",
-    "auto_transitions": {
-      "title": "Transitions automatiques"
-    },
     "built_in_locked": "Les états intégrés pilotent le comportement du système : ils ne peuvent être ni modifiés ni archivés, mais vous pouvez les réordonner."
   },
   "quick_actions": {
@@ -375,7 +371,7 @@
       "labs": "Labo",
       "members": "Membres",
       "labels": "Étiquettes",
-      "issue_statuses": "États et transitions",
+      "issue_statuses": "États des tâches",
       "properties": "Propriétés",
       "quick_actions": "Actions rapides",
       "plugins": "Plugins",
@@ -1396,8 +1392,7 @@
   "code": {
     "hosting_title": "Hébergement du code",
     "pr_linking_title": "Pull requests et tâches",
-    "github_actions": "Actions GitHub",
-    "edit_in_statuses": "Modifier dans États et transitions"
+    "github_actions": "Actions GitHub"
   },
   "channels": {
     "breadcrumb": "Fil d'Ariane"

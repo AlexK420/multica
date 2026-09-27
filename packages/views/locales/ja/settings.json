@@ -79,10 +79,6 @@
       "cancelled": "見送り。"
     },
     "pr_auto_complete_badge": "PR のマージで自動設定",
-    "statuses_title": "ステータス",
-    "auto_transitions": {
-      "title": "自動遷移"
-    },
     "built_in_locked": "組み込みステータスはシステムの動作に使われるため、編集やアーカイブはできません。並び順は変更できます。"
   },
   "quick_actions": {
@@ -375,7 +371,7 @@
       "labs": "ラボ",
       "members": "メンバー",
       "labels": "ラベル",
-      "issue_statuses": "ステータスと遷移",
+      "issue_statuses": "タスクステータス",
       "properties": "プロパティ",
       "quick_actions": "クイックアクション",
       "plugins": "プラグイン",
@@ -1388,8 +1384,7 @@
   "code": {
     "hosting_title": "コードホスティング",
     "pr_linking_title": "プルリクエストとタスク",
-    "github_actions": "GitHub の操作",
-    "edit_in_statuses": "\"ステータスと遷移\" で変更"
+    "github_actions": "GitHub の操作"
   },
   "channels": {
     "breadcrumb": "パンくずリスト"

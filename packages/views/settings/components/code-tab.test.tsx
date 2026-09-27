@@ -69,23 +69,15 @@ vi.mock("@multica/core/api", () => ({
     getGitHubConnectURL: mockGetConnectURL,
   },
 }));
-vi.mock("../../navigation", () => ({
-  AppLink: ({ href, children, ...rest }: { href: string; children: ReactNode }) => (
-    <a href={href} {...rest}>
-      {children}
-    </a>
-  ),
-  useNavigation: () => ({
-    pathname: "/acme/settings",
-    searchParams: new URLSearchParams("tab=code"),
-  }),
-}));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 // The repository list and self-hosted rows have their own tests.
 vi.mock("./repositories-section", () => ({ RepositoriesSection: () => null }));
 vi.mock("./code-vcs", () => ({ VCSConnectionRows: () => <div>VCS rows</div> }));
+// The merge rule editor has its own test on the statuses it offers.
 vi.mock("./pr-merge-status-row", () => ({
-  usePRMergeStatus: () => ({ value: "done", renderOption: (key: string) => <span>{key}</span> }),
+  PRMergeStatusRow: ({ canManage }: { canManage: boolean }) => (
+    <div>{canManage ? "merge rule editable" : "merge rule read-only"}</div>
+  ),
 }));
 
 import { CodeTab } from "./code-tab";
@@ -235,14 +227,17 @@ describe("CodeTab — pull requests", () => {
     expect(screen.getByText(/ACM-123/)).toBeInTheDocument();
   });
 
-  it("shows the merge rule here but edits it on Statuses & transitions", () => {
-    render(<CodeTab />, { wrapper: Wrapper });
+  it("edits the merge rule here, even while GitHub features are paused", () => {
+    connect();
+    workspaceRef.current.settings = { pr_merge_status: "done", github_enabled: false };
+    const { unmount } = render(<CodeTab />, { wrapper: Wrapper });
+    // Self-hosted Git merges follow the same rule, so pausing GitHub keeps it.
+    expect(screen.getByText("merge rule editable")).toBeInTheDocument();
+    unmount();
 
-    expect(screen.getByText("done")).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: /Change in Statuses & transitions/ }),
-    ).toHaveAttribute("href", "/acme/settings?tab=issue-statuses&section=pr-merge-status");
-    expect(screen.queryByRole("combobox")).toBeNull();
+    roleRef.current = "member";
+    render(<CodeTab />, { wrapper: Wrapper });
+    expect(screen.getByText("merge rule read-only")).toBeInTheDocument();
   });
 
   it("lists self-hosted Git only where the deployment supports it", () => {
