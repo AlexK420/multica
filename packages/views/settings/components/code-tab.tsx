@@ -142,6 +142,11 @@ export function CodeTab() {
       ? { tone: "success" as const, label: t(($) => $.integrations.status_connected) }
       : { tone: "muted" as const, label: t(($) => $.github.status_paused) };
 
+  // Pausing is a workspace setting, not part of the installation: it outlives
+  // a disconnect, so the note shows whether or not an App is connected.
+  const pausedNote = !flags.enabled ? (
+    <span className="block">{t(($) => $.github.master_description_off)}</span>
+  ) : null;
   const githubDetail = connected ? (
     <>
       {t(($) => $.github.connected_to, {
@@ -150,20 +155,24 @@ export function CodeTab() {
       {primaryInstallation?.connected_by
         ? ` · ${t(($) => $.github.connected_by, { name: primaryInstallation.connected_by })}`
         : null}
-      {!flags.enabled ? (
-        <span className="block">{t(($) => $.github.master_description_off)}</span>
-      ) : null}
+      {pausedNote}
     </>
   ) : !canManageGitHub ? (
-    t(($) => $.github.contact_admin_to_connect)
+    <>
+      {t(($) => $.github.contact_admin_to_connect)}
+      {pausedNote}
+    </>
   ) : !configured ? (
     <>
       {t(($) => $.github.not_configured)}{" "}
       <code className="rounded-xs bg-muted px-1 py-0.5 text-micro">GITHUB_APP_SLUG</code>{" "}
       {t(($) => $.github.not_configured_and)}{" "}
       <code className="rounded-xs bg-muted px-1 py-0.5 text-micro">GITHUB_WEBHOOK_SECRET</code>
+      {pausedNote}
     </>
-  ) : null;
+  ) : (
+    pausedNote
+  );
 
   const featureDisabled = (key: GitHubSettingsKey) =>
     !canManageGitHub || !flags.enabled || savingKey === key;
@@ -190,52 +199,62 @@ export function CodeTab() {
             description={githubDetail ? <span className="block pl-12">{githubDetail}</span> : undefined}
           >
             {canManageGitHub ? (
-              connected && primaryInstallation ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    render={
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={t(($) => $.code.github_actions)}
-                      />
-                    }
+              <span className="flex items-center gap-1">
+                {connected ? null : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleConnect}
+                    disabled={connecting || !configured}
+                    aria-busy={connecting || undefined}
                   >
-                    <MoreHorizontal />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-auto">
-                    <DropdownMenuItem
-                      disabled={savingKey === "github_enabled"}
-                      onClick={() => persistSetting("github_enabled", !flags.enabled)}
+                    {connecting
+                      ? t(($) => $.github.connect_opening)
+                      : t(($) => $.github.connect_github)}
+                  </Button>
+                )}
+                {/* Resume stays reachable after a disconnect: the pause is a
+                    workspace setting, and Co-authored-by works without an App.
+                    Only disconnecting needs an installation. */}
+                {connected || !flags.enabled ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={t(($) => $.code.github_actions)}
+                        />
+                      }
                     >
-                      {flags.enabled ? <Pause /> : <Play />}
-                      {flags.enabled
-                        ? t(($) => $.github.pause)
-                        : t(($) => $.github.resume)}
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      variant="destructive"
-                      onClick={() => setDisconnectTarget(primaryInstallation.id)}
-                    >
-                      <Unplug />
-                      {t(($) => $.github.disconnect)}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              ) : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleConnect}
-                  disabled={connecting || !configured}
-                  aria-busy={connecting || undefined}
-                >
-                  {connecting
-                    ? t(($) => $.github.connect_opening)
-                    : t(($) => $.github.connect_github)}
-                </Button>
-              )
+                      <MoreHorizontal />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-auto">
+                      <DropdownMenuItem
+                        disabled={savingKey === "github_enabled"}
+                        onClick={() => persistSetting("github_enabled", !flags.enabled)}
+                      >
+                        {flags.enabled ? <Pause /> : <Play />}
+                        {flags.enabled
+                          ? t(($) => $.github.pause)
+                          : t(($) => $.github.resume)}
+                      </DropdownMenuItem>
+                      {primaryInstallation ? (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onClick={() => setDisconnectTarget(primaryInstallation.id)}
+                          >
+                            <Unplug />
+                            {t(($) => $.github.disconnect)}
+                          </DropdownMenuItem>
+                        </>
+                      ) : null}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : null}
+              </span>
             ) : null}
           </SettingsRow>
           {vcsAvailable ? <VCSConnectionRows /> : null}

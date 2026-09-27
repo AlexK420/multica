@@ -175,6 +175,27 @@ describe("CodeTab — GitHub", () => {
     }
   });
 
+  // A pause outlives a disconnect. Resuming must not need an App, or an
+  // unconfigured deployment could never turn Co-authored-by back on.
+  it("resumes paused GitHub features without an installation", async () => {
+    installationsRef.current = { installations: [], configured: false, can_manage: true };
+    workspaceRef.current.settings = { github_enabled: false };
+    const user = userEvent.setup();
+    render(<CodeTab />, { wrapper: Wrapper });
+
+    expect(screen.getByText("Not connected")).toBeInTheDocument();
+    expect(screen.getByText(/GitHub features are paused/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "GitHub actions" }));
+    expect(screen.queryByRole("menuitem", { name: "Disconnect" })).toBeNull();
+    await user.click(await screen.findByRole("menuitem", { name: "Resume GitHub features" }));
+
+    await waitFor(() => {
+      expect(mockUpdateWorkspace).toHaveBeenCalledWith("workspace-1", {
+        settings: { github_enabled: true },
+      });
+    });
+  });
+
   it("disconnects only after confirmation", async () => {
     connect();
     mockDeleteInstallation.mockResolvedValue(undefined);
