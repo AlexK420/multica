@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ArrowRight, Ban, XCircle } from "lucide-react";
 import type { AgentTask } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
@@ -19,7 +19,9 @@ import {
 import { useActorName } from "@multica/core/workspace/hooks";
 import { useCustomPricingStore } from "@multica/core/runtimes/custom-pricing-store";
 import { ActorAvatar } from "../../common/actor-avatar";
-import { TranscriptButton } from "../../common/task-transcript";
+import { useTaskMessages } from "@multica/core/chat/queries";
+import { AgentTranscriptDialog } from "../../common/task-transcript/agent-transcript-dialog";
+import { buildTimeline } from "../../common/task-transcript/build-timeline";
 import { cancellationActorLabel, cancelReasonLabel, failureReasonLabel } from "../../agents/components/tabs/task-failure";
 import { formatDuration } from "../../dashboard/utils";
 import { useLocale, useT } from "../../i18n";
@@ -590,73 +592,151 @@ function RunListRow({
   const cancelledBy = cancellationActorLabel(task, tAgents);
   const statusTitle = [cancelledBy, reason].filter(Boolean).join(" · ") || statusLabel;
   const agentName = getActorName("agent", task.agent_id);
+  const label = quoted ? t(($) => $.runs_timeline.quoted, { text: trigger }) : trigger;
+  // null = closed; otherwise whether a keyboard opened it, so focus goes back
+  // to the row only for the reader who needs it.
+  const [transcript, setTranscript] = useState<{ fromKeyboard: boolean } | null>(null);
+
+  // The whole row opens the run's transcript — the question after "which run"
+  // is almost always "what did it do". The trigger text is the row's real
+  // button (keyboard and screen readers land there); a click anywhere else in
+  // the row reaches the same place. Clicks from portaled children — a hover
+  // card's link, the transcript dialog itself — bubble through React too, so
+  // only clicks inside the row's own DOM count.
+  const openTranscript = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.contains(event.target as Node)) return;
+    setTranscript({ fromKeyboard: event.detail === 0 });
+  };
 
   return (
-    <div className="group/run-row flex h-9 items-center gap-2.5 border-b text-caption transition-colors hover:bg-accent/40">
-      <span className="w-10 shrink-0 font-mono text-micro tabular-nums text-muted-foreground">
-        {time}
-      </span>
-      <span className="flex w-4 shrink-0 justify-center">
-        <AttributionBadge attribution={task.attribution} variant="avatar" />
-      </span>
-      <span
-        className={cn(
-          "min-w-0 flex-1 truncate text-label",
-          run.usage || run.active ? "text-foreground" : "text-muted-foreground",
-        )}
+    <>
+      <div
+        onClick={openTranscript}
+        className="group/run-row flex h-9 cursor-pointer items-center gap-2.5 border-b text-caption transition-colors hover:bg-accent/40"
       >
-        {quoted ? t(($) => $.runs_timeline.quoted, { text: trigger }) : trigger}
-      </span>
-      <ArrowRight aria-hidden className="size-3 shrink-0 text-faint-foreground" />
-      <span className="flex w-28 shrink-0 items-center gap-1.5">
-        <ActorAvatar actorType="agent" actorId={task.agent_id} size="xs" enableHoverCard />
-        <span className="truncate">{agentName}</span>
-      </span>
-      <span className="flex w-24 shrink-0 items-center gap-1" title={statusTitle}>
-        {run.active ? (
-          <span className="flex items-center gap-1 text-info">
-            <span className="size-1.5 rounded-full bg-info" />
-            {statusLabel}
-          </span>
-        ) : task.status === "failed" ? (
-          <span className="flex items-center gap-1 text-destructive">
-            <XCircle aria-hidden className="size-3.5 shrink-0" />
-            {statusLabel}
-          </span>
-        ) : task.status === "cancelled" ? (
-          <span className="flex items-center gap-1 text-muted-foreground">
-            <Ban aria-hidden className="size-3.5 shrink-0" />
-            {statusLabel}
-          </span>
-        ) : (
-          <>
-            <span className="tabular-nums text-muted-foreground">
-              {run.durationMs != null ? formatDuration(run.durationMs / 1000, UNDER_A_SECOND) : "—"}
+        <span className="w-10 shrink-0 font-mono text-micro tabular-nums text-muted-foreground">
+          {time}
+        </span>
+        <span className="flex w-4 shrink-0 justify-center">
+          <AttributionBadge attribution={task.attribution} variant="avatar" />
+        </span>
+        {/* One line keeps the list scannable; the full text is in the native
+            tooltip and, whole and wrapped, at the top of the transcript. */}
+        <button
+          type="button"
+          title={label}
+          aria-haspopup="dialog"
+          className={cn(
+            "min-w-0 flex-1 truncate rounded-xs text-left text-label outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+            run.usage || run.active ? "text-foreground" : "text-muted-foreground",
+          )}
+        >
+          {label}
+        </button>
+        <ArrowRight aria-hidden className="size-3 shrink-0 text-faint-foreground" />
+        <span className="flex w-28 shrink-0 items-center gap-1.5">
+          <ActorAvatar actorType="agent" actorId={task.agent_id} size="xs" enableHoverCard />
+          <span className="truncate">{agentName}</span>
+        </span>
+        <span className="flex w-24 shrink-0 items-center gap-1" title={statusTitle}>
+          {run.active ? (
+            <span className="flex items-center gap-1 text-info">
+              <span className="size-1.5 rounded-full bg-info" />
+              {statusLabel}
             </span>
-            <span className="sr-only">{statusLabel}</span>
-          </>
-        )}
-      </span>
-      <span className="flex w-36 shrink-0 items-center justify-end gap-2">
-        {run.usage && run.breakdown ? (
-          <CostCell run={run} maxCost={maxCost} />
-        ) : (
-          // No figure is not zero: a run without usage data was not free.
-          <span className="text-faint-foreground" title={t(($) => $.runs_timeline.no_usage)}>
-            —
-          </span>
-        )}
-      </span>
-      <span className="flex w-14 shrink-0 items-center justify-end gap-0.5 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/run-row:opacity-100 [@media(hover:hover)]:focus-within:opacity-100">
-        <TranscriptButton
+          ) : task.status === "failed" ? (
+            <span className="flex items-center gap-1 text-destructive">
+              <XCircle aria-hidden className="size-3.5 shrink-0" />
+              {statusLabel}
+            </span>
+          ) : task.status === "cancelled" ? (
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <Ban aria-hidden className="size-3.5 shrink-0" />
+              {statusLabel}
+            </span>
+          ) : (
+            <>
+              <span className="tabular-nums text-muted-foreground">
+                {run.durationMs != null ? formatDuration(run.durationMs / 1000, UNDER_A_SECOND) : "—"}
+              </span>
+              <span className="sr-only">{statusLabel}</span>
+            </>
+          )}
+        </span>
+        <span className="flex w-36 shrink-0 items-center justify-end gap-2">
+          {run.usage && run.breakdown ? (
+            <CostCell run={run} maxCost={maxCost} />
+          ) : (
+            // No figure is not zero: a run without usage data was not free.
+            <span className="text-faint-foreground" title={t(($) => $.runs_timeline.no_usage)}>
+              —
+            </span>
+          )}
+        </span>
+        {/* Retry is its own action; it must not also open the transcript. */}
+        <span
+          onClick={(event) => event.stopPropagation()}
+          className="flex w-8 shrink-0 items-center justify-end [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/run-row:opacity-100 [@media(hover:hover)]:focus-within:opacity-100"
+        >
+          {canRetryRun(task) && <RetryRunButton task={task} issueId={issueId} />}
+        </span>
+      </div>
+      {transcript && (
+        <RunTranscript
           task={task}
           agentName={agentName}
-          isLive={task.status === "running"}
-          title={t(($) => $.execution_log.transcript_tooltip)}
+          fromKeyboard={transcript.fromKeyboard}
+          onClose={() => setTranscript(null)}
         />
-        {canRetryRun(task) && <RetryRunButton task={task} issueId={issueId} />}
-      </span>
-    </div>
+      )}
+    </>
+  );
+}
+
+// The run's transcript, loaded when a row opens it. Same data path as the
+// comment thread's inline run: the task-messages query (live-updating for a
+// running task) feeding the shared transcript dialog.
+function RunTranscript({
+  task,
+  agentName,
+  fromKeyboard,
+  onClose,
+}: {
+  task: AgentTask;
+  agentName: string;
+  fromKeyboard: boolean;
+  onClose: () => void;
+}) {
+  const { t } = useT("issues");
+  const live = task.status === "running";
+  const { data, isPending, isError, refetch } = useTaskMessages(task.id, live);
+  const items = useMemo(() => buildTimeline(data ?? []), [data]);
+  return (
+    <AgentTranscriptDialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+      task={task}
+      items={items}
+      agentName={agentName}
+      isLive={live}
+      finalFocus={fromKeyboard}
+      contentState={
+        isPending ? (
+          <p role="status" className="text-body text-muted-foreground">
+            {t(($) => $.inline_run.loading)}
+          </p>
+        ) : isError ? (
+          <div role="alert" className="text-body text-destructive">
+            {t(($) => $.inline_run.load_failed)}
+            <button className="ml-2 underline" type="button" onClick={() => void refetch()}>
+              {t(($) => $.inline_run.try_again)}
+            </button>
+          </div>
+        ) : undefined
+      }
+    />
   );
 }
 
