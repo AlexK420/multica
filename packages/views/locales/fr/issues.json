@@ -722,7 +722,8 @@
       "source_backfill": "Attribution reconstituée",
       "source_unattributed": "Aucun membre responsable identifié"
     },
-    "usage_total_tooltip": "Consommation de tokens pour cette tâche — cliquez pour le détail par exécution"
+    "usage_total_tooltip": "Consommation de tokens pour cette tâche — cliquez pour le détail par exécution",
+    "trigger_image": "[Image]"
   },
   "usage_detail": {
     "title": "Détail de la consommation",

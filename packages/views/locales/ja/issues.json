@@ -697,7 +697,8 @@
       "source_backfill": "バックフィルされた帰属",
       "source_unattributed": "責任メンバーを解決できません"
     },
-    "usage_total_tooltip": "このタスクのトークン使用量 — クリックで実行ごとの内訳"
+    "usage_total_tooltip": "このタスクのトークン使用量 — クリックで実行ごとの内訳",
+    "trigger_image": "[画像]"
   },
   "usage_detail": {
     "title": "使用量の内訳",
