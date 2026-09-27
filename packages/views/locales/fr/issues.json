@@ -759,6 +759,7 @@
     "cost_cache_read": "Lecture du cache",
     "cost_cache_write": "Écriture du cache",
     "no_usage": "Aucune consommation enregistrée",
+    "tooltip_total": "Cumul : {{cost}}",
     "note_unmapped": "Aucun tarif connu pour {{models}} ; leurs tokens sont comptés, mais pas leur coût.",
     "note_estimate": "Le coût est estimé d'après les tarifs publiés des modèles, sauf lorsque le fournisseur a communiqué son propre chiffre."
   },

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentTask, TaskUsage } from "@multica/core/types";
 import { useCustomPricingStore } from "@multica/core/runtimes/custom-pricing-store";
@@ -182,6 +182,31 @@ describe("IssueRunsDialog", () => {
     });
 
     expect(screen.getAllByText("$7.00").length).toBeGreaterThan(0);
+  });
+
+  it("answers a pointer anywhere on the chart with the nearest run", () => {
+    open([
+      makeTask({ id: "early", trigger_summary: "Early run", started_at: "2026-09-27T09:00:00", completed_at: "2026-09-27T09:30:00", usage: [usage()] }),
+      makeTask({ id: "late", trigger_summary: "Late run", started_at: "2026-09-27T15:00:00", completed_at: "2026-09-27T15:10:00", usage: [usage({ output_tokens: 200_000 })] }),
+    ]);
+    // The plot column sits beside the lane labels; give it a width, which
+    // jsdom does not lay out.
+    const plot = screen.getByRole("img").children[1] as HTMLElement;
+    plot.getBoundingClientRect = () => ({ left: 0, width: 1000, top: 0, height: 200, right: 1000, bottom: 200, x: 0, y: 0, toJSON: () => ({}) });
+
+    // Far right, past the last bar: snaps to the last run.
+    fireEvent.pointerMove(plot, { clientX: 995 });
+    expect(within(plot).getByText("Late run")).toBeInTheDocument();
+    expect(within(plot).getByText(/Total so far \$30\.00/)).toBeInTheDocument();
+
+    // Far left: the first run, with the curve's reading there.
+    fireEvent.pointerMove(plot, { clientX: 5 });
+    expect(within(plot).getByText("Early run")).toBeInTheDocument();
+    expect(within(plot).getByText(/Total so far \$25\.00/)).toBeInTheDocument();
+
+    // Leaving hands the plot back to the peak label.
+    fireEvent.pointerLeave(plot);
+    expect(within(plot).queryByText(/Total so far/)).not.toBeInTheDocument();
   });
 
   it("keeps the whole trigger reachable when one line truncates it", () => {

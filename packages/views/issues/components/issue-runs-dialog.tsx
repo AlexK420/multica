@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ArrowRight, Ban, XCircle } from "lucide-react";
 import type { AgentTask } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
@@ -33,6 +33,7 @@ import { AttributionBadge } from "./attribution-badge";
 import {
   buildRunTimeline,
   groupRunsByDay,
+  nearestRunIndex,
   niceTicks,
   timeTicks,
   type RunTimeline,
@@ -284,6 +285,22 @@ function RunTimelineChart({ timeline }: { timeline: RunTimeline }) {
   const peakStep = peak ? steps.find((s) => s.t === peak.endMs) : undefined;
   const peakX = peakStep ? xPct(peakStep.t) : 0;
 
+  // Hover layer: anywhere over the plot column snaps to the nearest run — a
+  // crosshair where it finished, the curve's reading there, and a card with the
+  // run itself. Lane bars can be a few pixels wide, so asking the pointer to
+  // land on one would make most of them unreachable. The list below carries the
+  // same figures for keyboard and screen-reader users.
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const hovered = hoverIndex != null ? timeline.runs[hoverIndex] : undefined;
+  const hoverX = hovered ? xPct(hovered.endMs) : 0;
+  const trackPointer = (event: React.PointerEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const t = d0 + ((event.clientX - rect.left) / rect.width) * (d1 - d0);
+    const index = nearestRunIndex(timeline.runs, t);
+    setHoverIndex(index >= 0 ? index : null);
+  };
+
   return (
     <div
       role="img"
@@ -308,7 +325,12 @@ function RunTimelineChart({ timeline }: { timeline: RunTimeline }) {
         </div>
       </div>
 
-      <div className="relative min-w-0 flex-1">
+      <div
+        className="relative min-w-0 flex-1"
+        onPointerMove={trackPointer}
+        onPointerDown={trackPointer}
+        onPointerLeave={() => setHoverIndex(null)}
+      >
         {/* Time gridlines run through the curve and the lanes alike. */}
         {ticks.map((tick) => (
           <span
@@ -350,7 +372,13 @@ function RunTimelineChart({ timeline }: { timeline: RunTimeline }) {
               style={{ left: `${xPct(last.t)}%`, top: `${yPct(last.cost)}%` }}
             />
           )}
-          {peak && peakStep && (
+          {hovered && plotHeight > 0 && (
+            <span
+              className="pointer-events-none absolute z-10 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-chart-1 ring-2 ring-popover"
+              style={{ left: `${hoverX}%`, top: `${yPct(hovered.costSoFar)}%` }}
+            />
+          )}
+          {peak && peakStep && !hovered && (
             <PeakLabel
               run={peak}
               style={{
@@ -369,17 +397,44 @@ function RunTimelineChart({ timeline }: { timeline: RunTimeline }) {
           {timeline.lanes.map((lane) => (
             <div key={lane.agentId} className="relative h-3.5 rounded-xs bg-muted/60">
               {lane.runs.map((run) => (
-                <RunBar
+                <span
                   key={run.task.id}
-                  run={run}
-                  tone={runBarTone(run, run === peak)}
-                  left={xPct(run.startMs)}
-                  width={xPct(run.endMs) - xPct(run.startMs)}
+                  className={cn(
+                    "absolute inset-y-0.5 min-w-[3px] rounded-[2px] transition-opacity",
+                    runBarTone(run, run === peak),
+                    hovered && run !== hovered && "opacity-35",
+                  )}
+                  style={{
+                    left: `${xPct(run.startMs)}%`,
+                    width: `${xPct(run.endMs) - xPct(run.startMs)}%`,
+                  }}
                 />
               ))}
             </div>
           ))}
         </div>
+
+        {hovered && (
+          <>
+            <span
+              aria-hidden
+              className="pointer-events-none absolute top-0 bottom-5 w-px bg-foreground/30"
+              style={{ left: `${hoverX}%` }}
+            />
+            {/* Beside the crosshair, on whichever side has room, so it never
+                covers the point it describes. */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute top-0 z-20 w-max max-w-72 rounded-lg border bg-popover px-2.5 py-1.5 text-caption text-popover-foreground shadow-[var(--menu-shadow)]"
+              style={{
+                left: `${hoverX}%`,
+                transform: hoverX > 55 ? "translateX(calc(-100% - 10px))" : "translateX(10px)",
+              }}
+            >
+              <RunHoverCard run={hovered} />
+            </div>
+          </>
+        )}
 
         <div className="relative mt-1 h-5" aria-hidden>
           {ticks.map((tick) => {
@@ -443,32 +498,8 @@ function PeakLabel({ run, style }: { run: TimelineRun; style: React.CSSPropertie
   );
 }
 
-function RunBar({
-  run,
-  tone,
-  left,
-  width,
-}: {
-  run: TimelineRun;
-  tone: string;
-  left: number;
-  width: number;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={<span />}
-        className={cn("absolute inset-y-0.5 min-w-[3px] rounded-[2px]", tone)}
-        style={{ left: `${left}%`, width: `${width}%` }}
-      />
-      <TooltipContent className="max-w-72">
-        <RunSummary run={run} />
-      </TooltipContent>
-    </Tooltip>
-  );
-}
-
-function RunSummary({ run }: { run: TimelineRun }) {
+function RunHoverCard({ run }: { run: TimelineRun }) {
+  const { t } = useT("issues");
   const { getActorName } = useActorName();
   const trigger = useTriggerText(run.task);
   const status = useStatusLabel(run.task.status);
@@ -481,15 +512,27 @@ function RunSummary({ run }: { run: TimelineRun }) {
     hour12: false,
   }).format(run.startMs);
   const facts = [
-    getActorName("agent", run.task.agent_id),
     when,
-    run.durationMs != null ? formatDuration(run.durationMs / 1000, UNDER_A_SECOND) : status,
-    run.usage ? formatUsd(run.usage.cost) : null,
-  ].filter(Boolean);
+    run.task.status === "completed" && run.durationMs != null
+      ? formatDuration(run.durationMs / 1000, UNDER_A_SECOND)
+      : status,
+  ];
   return (
-    <div className="flex min-w-0 flex-col">
-      <span className="truncate">{trigger}</span>
-      <span className="text-micro text-muted-foreground">{facts.join(" · ")}</span>
+    <div className="flex min-w-0 flex-col gap-1">
+      <span className="truncate font-medium">{trigger}</span>
+      <span className="flex min-w-0 items-center gap-1.5 text-micro text-muted-foreground">
+        <ActorAvatar actorType="agent" actorId={run.task.agent_id} size="xs" />
+        <span className="truncate">{[getActorName("agent", run.task.agent_id), ...facts].join(" · ")}</span>
+      </span>
+      <span className="text-micro tabular-nums">
+        <span className="font-medium">
+          {run.usage ? formatUsd(run.usage.cost) : t(($) => $.runs_timeline.no_usage)}
+        </span>
+        <span className="text-muted-foreground">
+          {" · "}
+          {t(($) => $.runs_timeline.tooltip_total, { cost: formatUsd(run.costSoFar) })}
+        </span>
+      </span>
     </div>
   );
 }

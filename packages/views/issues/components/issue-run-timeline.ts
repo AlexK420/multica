@@ -41,6 +41,8 @@ export interface TimelineRun {
   /** Null when the run recorded no usage — "no figure", never "free". */
   usage: TaskUsageSummary | null;
   breakdown: CostBreakdown | null;
+  /** The issue's running total once this run ended — what the curve reads there. */
+  costSoFar: number;
 }
 
 export interface CumulativeStep {
@@ -114,6 +116,7 @@ export function toTimelineRun(task: AgentTask, nowMs: number): TimelineRun | nul
     durationMs: active ? null : taskDurationMs(task),
     usage,
     breakdown: usage ? sumBreakdown(task) : null,
+    costSoFar: 0,
   };
 }
 
@@ -151,9 +154,12 @@ export function buildRunTimeline(tasks: readonly AgentTask[], nowMs: number): Ru
   // and completion order is not start order when runs overlap.
   const cumulative: CumulativeStep[] = [];
   let running = 0;
-  for (const run of runs.filter((r) => r.usage).toSorted((a, b) => a.endMs - b.endMs)) {
-    running += run.usage!.cost;
-    cumulative.push({ t: run.endMs, cost: running });
+  for (const run of runs.toSorted((a, b) => a.endMs - b.endMs)) {
+    if (run.usage) {
+      running += run.usage.cost;
+      cumulative.push({ t: run.endMs, cost: running });
+    }
+    run.costSoFar = running;
   }
 
   const first = runs[0];
@@ -217,6 +223,24 @@ export function niceTicks(max: number, maxCount = 4): number[] {
     if (v >= max) break;
   }
   return ticks;
+}
+
+/**
+ * The run a pointer at time `t` is about: the one whose bar it is over, else
+ * the one whose bar is nearest. Bars can be a few pixels wide, so the whole
+ * chart snaps to runs rather than asking the pointer to land on one.
+ */
+export function nearestRunIndex(runs: readonly TimelineRun[], t: number): number {
+  let best = -1;
+  let bestDistance = Infinity;
+  runs.forEach((run, i) => {
+    const distance = t < run.startMs ? run.startMs - t : t > run.endMs ? t - run.endMs : 0;
+    if (distance < bestDistance) {
+      best = i;
+      bestDistance = distance;
+    }
+  });
+  return best;
 }
 
 export interface TimeTick {

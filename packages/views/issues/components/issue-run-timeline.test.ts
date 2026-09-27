@@ -4,6 +4,7 @@ import type { AgentTask, TaskUsage } from "@multica/core/types";
 import {
   buildRunTimeline,
   groupRunsByDay,
+  nearestRunIndex,
   niceTicks,
   timeTicks,
 } from "./issue-run-timeline";
@@ -178,6 +179,49 @@ describe("buildRunTimeline", () => {
     );
     const [d0, d1] = timeline.domain;
     expect(d1 - d0).toBeGreaterThanOrEqual(60 * 60 * 1000);
+  });
+});
+
+describe("costSoFar", () => {
+  it("reads the curve at each run's end, unpriced runs included", () => {
+    const timeline = buildRunTimeline(
+      [
+        makeTask({ id: "a", started_at: "2026-09-24T10:00:00", completed_at: "2026-09-24T10:30:00", usage: usage(400_000) }),
+        makeTask({ id: "gap", status: "cancelled", started_at: "2026-09-24T11:00:00", completed_at: "2026-09-24T11:00:05" }),
+        makeTask({ id: "b", started_at: "2026-09-24T12:00:00", completed_at: "2026-09-24T12:30:00", usage: usage(200_000) }),
+      ],
+      NOW,
+    );
+    expect(timeline.runs.map((r) => [r.task.id, r.costSoFar])).toEqual([
+      ["a", 10],
+      ["gap", 10],
+      ["b", 15],
+    ]);
+  });
+});
+
+describe("nearestRunIndex", () => {
+  const { runs } = buildRunTimeline(
+    [
+      makeTask({ id: "a", started_at: "2026-09-24T10:00:00", completed_at: "2026-09-24T10:30:00" }),
+      makeTask({ id: "b", started_at: "2026-09-24T14:00:00", completed_at: "2026-09-24T14:00:20" }),
+    ],
+    NOW,
+  );
+  const at = (iso: string) => runs[nearestRunIndex(runs, new Date(iso).getTime())]!.task.id;
+
+  it("picks the run under the pointer", () => {
+    expect(at("2026-09-24T10:15:00")).toBe("a");
+  });
+
+  it("snaps to the nearest bar, however thin, when between runs", () => {
+    expect(at("2026-09-24T11:00:00")).toBe("a");
+    expect(at("2026-09-24T13:00:00")).toBe("b");
+    expect(at("2026-09-25T00:00:00")).toBe("b");
+  });
+
+  it("has nothing to point at without runs", () => {
+    expect(nearestRunIndex([], 0)).toBe(-1);
   });
 });
 
