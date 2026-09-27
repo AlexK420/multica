@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { AnimatePresence, motion, useIsPresent, useReducedMotion } from "motion/react";
 import { ChevronDown, ChevronUp, Maximize2, X } from "lucide-react";
 import { Button, buttonVariants } from "@multica/ui/components/ui/button";
 import {
@@ -10,6 +11,7 @@ import {
 } from "@multica/ui/components/ui/tooltip";
 import { ErrorBoundary } from "@multica/ui/components/common/error-boundary";
 import { cn } from "@multica/ui/lib/utils";
+import { UI_EASE_OUT, UI_MOTION_DURATION } from "@multica/ui/lib/motion";
 import { useModalStore } from "@multica/core/modals";
 import { useWorkspacePaths } from "@multica/core/paths";
 import {
@@ -45,6 +47,9 @@ const CLOSE_KEY = createShortcutChord("Escape");
  *
  * `enabled` is false for views without board cards (list, table, gantt);
  * switching to one of them closes the peek.
+ *
+ * Besides a focused card's own Space (see DraggableBoardCard), Space peeks the
+ * card under the pointer, so mouse users need not Tab to a card first.
  */
 export function IssuePeekHost({
   enabled,
@@ -72,6 +77,27 @@ export function IssuePeekHost({
   const openId = enabled ? peekId : null;
   const position = useMemo(() => locateInColumns(columns, openId), [columns, openId]);
 
+  // Tracked from pointer events rather than queried with `:hover`, so the
+  // card under a stationary pointer is known without a layout read.
+  const hoveredCardRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== " " || event.defaultPrevented || event.repeat || isImeComposing(event)) return;
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      // A focused control keeps its own Space: buttons press, inputs type.
+      if (isEditableShortcutTarget(event.target) || isControlTarget(event.target)) return;
+      if (isPortalLayerShortcutTarget(event.target)) return;
+      if (useModalStore.getState().modal) return;
+      const hovered = hoveredCardRef.current;
+      if (!hovered) return;
+      event.preventDefault();
+      actions.toggle(hovered);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [enabled, actions]);
+
   return (
     <IssuePeekActionsContext.Provider value={actions}>
       <IssuePeekIdContext.Provider value={openId}>
@@ -79,9 +105,22 @@ export function IssuePeekHost({
           <div
             data-peek-open={openId ? "" : undefined}
             className="group/peek relative flex min-h-0 flex-1 flex-col [--issue-peek-width:520px]"
+            onPointerOver={(event) => {
+              hoveredCardRef.current =
+                (event.target as Element).closest("[data-board-card]")?.getAttribute("data-board-card") ||
+                null;
+            }}
+            onPointerLeave={() => {
+              hoveredCardRef.current = null;
+            }}
           >
             {children}
-            {openId && <IssuePeekPanel issueId={openId} />}
+            {/* One stable key: switching issues swaps the content in place
+                (J / K is keyboard navigation — it must not animate); only
+                opening and closing the panel does. */}
+            <AnimatePresence initial={false}>
+              {openId && <IssuePeekPanel key="issue-peek" issueId={openId} />}
+            </AnimatePresence>
           </div>
         </IssuePeekPositionContext.Provider>
       </IssuePeekIdContext.Provider>
@@ -96,9 +135,13 @@ const IssuePeekPanel = memo(function IssuePeekPanel({ issueId }: { issueId: stri
   const { t } = useT("issues");
   const actions = useIssuePeekActions()!;
   const panelRef = useRef<HTMLElement>(null);
+  // False while the exit animation plays: the closing panel no longer takes
+  // clicks or keys, so the board is usable the moment the peek is dismissed.
+  const isPresent = useIsPresent();
+  const reduceMotion = useReducedMotion() ?? false;
 
   return (
-    <aside
+    <motion.aside
       ref={panelRef}
       aria-label={t(($) => $.peek.panel_label)}
       data-issue-peek=""
@@ -108,10 +151,23 @@ const IssuePeekPanel = memo(function IssuePeekPanel({ issueId }: { issueId: stri
         // Stops above the chat launcher, which owns the dashboard's
         // bottom-right corner — the panel's composer would sit under it.
         "above-chat-launcher",
-        "animate-in fade-in slide-in-from-right-4 duration-150 motion-reduce:animate-none",
+        !isPresent && "pointer-events-none",
       )}
+      // Slides in from the edge it is anchored to; the exit is shorter and
+      // travels half as far. Reduced motion keeps only the fade.
+      initial={{ opacity: 0, transform: reduceMotion ? "translateX(0)" : "translateX(16px)" }}
+      animate={{
+        opacity: 1,
+        transform: "translateX(0)",
+        transition: { duration: UI_MOTION_DURATION.standard, ease: UI_EASE_OUT },
+      }}
+      exit={{
+        opacity: 0,
+        transform: reduceMotion ? "translateX(0)" : "translateX(8px)",
+        transition: { duration: UI_MOTION_DURATION.fast, ease: UI_EASE_OUT },
+      }}
     >
-      <IssuePeekFollow issueId={issueId} panelRef={panelRef} />
+      {isPresent && <IssuePeekFollow issueId={issueId} panelRef={panelRef} />}
       <ErrorBoundary resetKeys={[issueId]}>
         <IssueDetail
           key={issueId}
@@ -123,7 +179,7 @@ const IssuePeekPanel = memo(function IssuePeekPanel({ issueId }: { issueId: stri
           onDelete={actions.close}
         />
       </ErrorBoundary>
-    </aside>
+    </motion.aside>
   );
 });
 
@@ -137,6 +193,7 @@ function IssuePeekFollow({
 }) {
   const actions = useIssuePeekActions()!;
   const position = useIssuePeekPosition();
+  const reduceMotion = useReducedMotion() ?? false;
 
   // Read through a ref so the listener is bound once, not on every step.
   const positionRef = useRef(position);
@@ -189,10 +246,20 @@ function IssuePeekFollow({
     // shifted by the slide-in animation.
     const panelLeft = host.getBoundingClientRect().left + panel.offsetLeft;
     const covered = card.getBoundingClientRect().right - (panelLeft - 16);
-    if (scroller && covered > 0) scroller.scrollBy?.({ left: covered, behavior: "smooth" });
-  }, [issueId, neighbours, panelRef]);
+    if (scroller && covered > 0) {
+      scroller.scrollBy?.({ left: covered, behavior: reduceMotion ? "auto" : "smooth" });
+    }
+  }, [issueId, neighbours, panelRef, reduceMotion]);
 
   return null;
+}
+
+/** A focused control whose own Space must win over the hovered-card peek. */
+function isControlTarget(target: EventTarget | null) {
+  return (
+    target instanceof Element &&
+    target.closest("a, button, select, summary, [role='button'], [role='menuitem'], [role='option'], [role='tab']") !== null
+  );
 }
 
 /** Previous / next card in the peeked issue's board column. */

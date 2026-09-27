@@ -1,4 +1,4 @@
-import { act, fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { useEffect, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithI18n } from "../../test/i18n";
@@ -95,6 +95,8 @@ function renderHost(enabled = true) {
 }
 
 const panel = () => screen.queryByRole("complementary", { name: "Issue preview" });
+// Closing plays a short exit animation before the panel unmounts.
+const waitForClosed = () => waitFor(() => expect(panel()).toBeNull());
 const openCard = (id: string) => fireEvent.click(screen.getByText(`card ${id}`));
 
 describe("IssuePeekHost", () => {
@@ -113,14 +115,14 @@ describe("IssuePeekHost", () => {
     expect(screen.getByText("card i-1")).not.toHaveAttribute("data-peeked");
   });
 
-  it("switches to another card, and closes when the peeked card is toggled again", () => {
+  it("switches to another card, and closes when the peeked card is toggled again", async () => {
     renderHost();
     openCard("i-1");
     openCard("i-4");
     expect(screen.getByTestId("detail")).toHaveTextContent("i-4");
 
     openCard("i-4");
-    expect(panel()).toBeNull();
+    await waitForClosed();
   });
 
   it("shows the position in the column and steps with J / K", () => {
@@ -148,7 +150,7 @@ describe("IssuePeekHost", () => {
     expect(screen.getByTestId("detail")).toHaveTextContent("i-2");
   });
 
-  it("closes on Escape, but not while typing or inside a popup", () => {
+  it("closes on Escape, but not while typing or inside a popup", async () => {
     renderHost();
     openCard("i-1");
 
@@ -164,7 +166,7 @@ describe("IssuePeekHost", () => {
     expect(panel()).not.toBeNull();
 
     fireEvent.keyDown(document.body, { key: "Escape" });
-    expect(panel()).toBeNull();
+    await waitForClosed();
 
     input.remove();
     menu.remove();
@@ -181,15 +183,15 @@ describe("IssuePeekHost", () => {
     editor.remove();
   });
 
-  it("closes from the close button and when the issue is deleted", () => {
+  it("closes from the close button and when the issue is deleted", async () => {
     renderHost();
     openCard("i-1");
     fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
-    expect(panel()).toBeNull();
+    await waitForClosed();
 
     openCard("i-1");
     fireEvent.click(screen.getByRole("button", { name: "delete" }));
-    expect(panel()).toBeNull();
+    await waitForClosed();
   });
 
   it("links to the full issue page", () => {
@@ -201,12 +203,42 @@ describe("IssuePeekHost", () => {
     );
   });
 
-  it("closes when the view stops hosting a peek", () => {
+  it("closes when the view stops hosting a peek", async () => {
     const { setEnabled } = renderHost();
     openCard("i-1");
     act(() => setEnabled(false));
-    expect(panel()).toBeNull();
+    await waitForClosed();
     act(() => setEnabled(true));
+    expect(panel()).toBeNull();
+  });
+
+  it("peeks the card under the pointer on Space, and closes it on a second Space", async () => {
+    renderHost();
+    fireEvent.pointerOver(screen.getByText("card i-3"));
+    expect(fireEvent.keyDown(document.body, { key: " " })).toBe(false);
+    expect(screen.getByTestId("detail")).toHaveTextContent("i-3");
+
+    fireEvent.keyDown(document.body, { key: " " });
+    await waitForClosed();
+  });
+
+  it("leaves Space alone with no card under the pointer, or a control focused", () => {
+    renderHost();
+    fireEvent.keyDown(document.body, { key: " " });
+    expect(panel()).toBeNull();
+
+    // Focus on a control keeps Space for that control, even over a card.
+    fireEvent.pointerOver(screen.getByText("card i-3"));
+    const button = document.createElement("button");
+    document.body.appendChild(button);
+    expect(fireEvent.keyDown(button, { key: " " })).toBe(true);
+    expect(panel()).toBeNull();
+    button.remove();
+
+    // Leaving the board forgets the hovered card.
+    // (FakeBoard renders its cards straight into the host wrapper.)
+    fireEvent.pointerLeave(screen.getByText("card i-3").parentElement!);
+    fireEvent.keyDown(document.body, { key: " " });
     expect(panel()).toBeNull();
   });
 });
