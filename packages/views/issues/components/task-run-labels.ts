@@ -3,9 +3,9 @@ import { useT } from "../../i18n";
 import { stripMentionMarkdown } from "../utils/strip-mention-markdown";
 
 // Display labels shared by every surface that lists an issue's agent runs:
-// the execution log rows and the usage-detail dialog. They live here rather
-// than in either component so the two can't drift — a run must read the same
-// in the sidebar and in the table it opens.
+// the execution log rows and the Runs dialog. They live here rather than in
+// either component so the two can't drift — a run must read the same in the
+// sidebar and in the timeline it opens.
 
 /**
  * Human label for what caused this run.
