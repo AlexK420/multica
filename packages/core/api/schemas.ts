@@ -1911,9 +1911,16 @@ export const AgentActivityBucketListSchema = z.array(z.object({
   failed_count: z.number().int().nonnegative(),
   completed_count: z.number().int().nonnegative(),
   cancelled_count: z.number().int().nonnegative(),
+  duration_ms: z.number().nonnegative().optional().catch(undefined),
+  duration_count: z.number().int().nonnegative().optional().catch(undefined),
 }).loose());
 
 export const AgentTaskListSchema = z.array(AgentTaskSchema);
+
+export const AgentTaskPageSchema = z.object({
+  tasks: AgentTaskListSchema,
+  nextCursor: z.string().min(1).nullable(),
+});
 
 // One row of a run transcript. `output_truncated` gates a completeness claim
 // the UI makes about a tool's output, so it stays `.optional()` with no
@@ -3442,6 +3449,9 @@ export const WorkspaceMcpServerSchema = z.object({
   name: z.string().default(""),
   transport: z.string().default("unknown"),
   enabled: z.boolean().optional(),
+  // Older servers omit it; a malformed value drops to "unknown" rather than
+  // failing the whole list.
+  agent_count: z.number().int().nonnegative().optional().catch(undefined),
   created_at: z.string().default(""),
   updated_at: z.string().default(""),
 });

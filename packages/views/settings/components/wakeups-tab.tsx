@@ -64,7 +64,11 @@ function ChildDoneDefault({ rule, canManage }: { rule: WorkspaceSystemWakeup; ca
     }
   };
   return (
-    <SettingsSection title={t(($) => $.wakeups.child_done_title)} description={t(($) => $.wakeups.child_done_description)}>
+    <SettingsSection
+      anchor="child-done"
+      title={t(($) => $.wakeups.child_done_title)}
+      description={t(($) => $.wakeups.child_done_description)}
+    >
       <SettingsCard>
         <SettingsRow
           label={<label htmlFor={`${id}-enabled`}>{t(($) => $.wakeups.enabled)}</label>}
