@@ -1,3 +1,4 @@
+import { useIssueOpeningStore } from "@multica/core/issues/stores/issue-opening-store";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -89,7 +90,10 @@ function renderRow(peekedId: string | null = null) {
 }
 
 describe("ListRow side peek", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useIssueOpeningStore.setState({ openMode: "page" });
+  });
 
   it("opens the peek on Shift+Click and still navigates on a plain click", () => {
     renderRow();
@@ -99,6 +103,14 @@ describe("ListRow side peek", () => {
 
     fireEvent.click(screen.getByRole("link"));
     expect(navigation.push).toHaveBeenCalledWith("/acme/issues/issue-1");
+  });
+
+  it("opens on a plain click when side preview is preferred", () => {
+    useIssueOpeningStore.getState().setOpenMode("peek");
+    renderRow();
+    fireEvent.click(screen.getByRole("link"));
+    expect(peek.open).toHaveBeenCalledWith("issue-1");
+    expect(navigation.push).not.toHaveBeenCalled();
   });
 
   it("marks the peeked row as the peek target", () => {

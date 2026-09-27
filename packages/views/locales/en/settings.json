@@ -169,10 +169,10 @@
       "after_run": "Start after this run",
       "hint": "Sets the default only. You can still change it for any message before sending."
     },
-    "issue_title": "Issue creation",
+    "issue_title": "Issues",
     "comments_title": "Comments",
     "device_hint": "Saved on this device.",
-    "issue_scope": "These preferences apply to this workspace on this device. They only change which fields you see when creating an issue."
+    "issue_scope": "The creation fields below are saved for this workspace on this device."
   },
   "shortcuts": {
     "title": "Keyboard Shortcuts",
@@ -312,6 +312,12 @@
     "floating_hint": "Show the floating chat button on every page."
   },
   "issue": {
+    "opening": {
+      "title": "Opening issues",
+      "click": "Clicking a card or row",
+      "page": "Open full page",
+      "peek": "Open side preview"
+    },
     "description": "Choose which fields each create dialog keeps on its toolbar. Hidden fields stay available from the ⋯ menu and reappear while they hold a value.",
     "quick_create_title": "Create with agent toolbar fields",
     "manual_create_title": "Manual create toolbar fields",

@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { useIssueOpeningStore } from "@multica/core/issues/stores/issue-opening-store";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DndContext } from "@dnd-kit/core";
@@ -122,7 +123,10 @@ const cardRoot = (container: HTMLElement) =>
   container.querySelector<HTMLElement>('[data-peek-target="issue-1"]')!;
 
 describe("DraggableBoardCard side peek", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useIssueOpeningStore.setState({ openMode: "page" });
+  });
 
   it("opens the peek on Shift+Click instead of navigating", () => {
     renderCard();
@@ -150,6 +154,28 @@ describe("DraggableBoardCard side peek", () => {
     expect(fireEvent.keyDown(cardRoot(container), { key: " " })).toBe(false);
     fireEvent.keyDown(link(), { key: " " });
     expect(peek.toggle).toHaveBeenCalledTimes(2);
+  });
+
+  it("reacts immediately to the preference and keeps repeated plain clicks open", () => {
+    renderCard();
+    act(() => useIssueOpeningStore.getState().setOpenMode("peek"));
+    fireEvent.click(link());
+    fireEvent.click(link());
+    expect(peek.open).toHaveBeenCalledTimes(2);
+    expect(peek.open).toHaveBeenCalledWith("issue-1");
+    expect(peek.toggle).not.toHaveBeenCalled();
+    expect(navigation.push).not.toHaveBeenCalled();
+    act(() => useIssueOpeningStore.getState().setOpenMode("page"));
+    fireEvent.click(link());
+    expect(navigation.push).toHaveBeenCalledWith("/acme/issues/issue-1");
+  });
+
+  it("still navigates without a peek host when the preference is peek", () => {
+    useIssueOpeningStore.getState().setOpenMode("peek");
+    renderCard({ withPeek: false });
+    fireEvent.click(link());
+    expect(navigation.push).toHaveBeenCalledWith("/acme/issues/issue-1");
+    expect(peek.open).not.toHaveBeenCalled();
   });
 
   it("marks the peeked card", () => {

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { locateInColumns } from "./peek-context";
+import { isPeekClick, locateInColumns } from "./peek-context";
 
 describe("locateInColumns", () => {
   const columns = [["a", "b", "c"], [], ["d"]];
@@ -38,4 +38,22 @@ describe("locateInColumns", () => {
     expect(locateInColumns(null, "a")).toBeNull();
     expect(locateInColumns(columns, null)).toBeNull();
   });
+});
+
+describe("peek click intent", () => {
+  const plain = { button: 0, shiftKey: false, metaKey: false, ctrlKey: false, altKey: false };
+  it("uses the preference for a plain click and always peeks on Shift", () => {
+    expect(isPeekClick(plain, "page")).toBe(false);
+    expect(isPeekClick(plain, "peek")).toBe(true);
+    expect(isPeekClick({ ...plain, shiftKey: true }, "page")).toBe(true);
+    expect(isPeekClick({ ...plain, shiftKey: true }, "peek")).toBe(true);
+  });
+  it.each([{ metaKey: true }, { ctrlKey: true }, { altKey: true }, { button: 1 }, { button: 2 }])(
+    "leaves modified clicks native: %j", (modifier) => {
+      for (const openMode of ["page", "peek"] as const) {
+        expect(isPeekClick({ ...plain, ...modifier }, openMode)).toBe(false);
+        expect(isPeekClick({ ...plain, shiftKey: true, ...modifier }, openMode)).toBe(false);
+      }
+    },
+  );
 });

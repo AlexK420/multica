@@ -1,6 +1,7 @@
 "use client";
 
-import { createContext, useContext, useMemo } from "react";
+import { createContext, useCallback, useContext, useMemo } from "react";
+import { useIssueOpeningStore, type IssueOpenMode } from "@multica/core/issues/stores/issue-opening-store";
 
 /**
  * Side peek: Shift+Click (or Space) on an issue — a board or swimlane card, a
@@ -94,11 +95,13 @@ export function locateInColumns(
   return null;
 }
 
-/** Plain Shift+Click: Cmd/Ctrl(+Shift) keep opening tabs, Alt stays native. */
+/** Shift always peeks; plain clicks follow the preference. Modified clicks stay native. */
 export function isPeekClick(
   event: Pick<MouseEvent, "button" | "shiftKey" | "metaKey" | "ctrlKey" | "altKey">,
+  openMode: IssueOpenMode = "page",
 ) {
-  return event.button === 0 && event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey;
+  return event.button === 0 && (event.shiftKey || openMode === "peek") &&
+    !event.metaKey && !event.ctrlKey && !event.altKey;
 }
 
 export const IssuePeekActionsContext = createContext<IssuePeekActions | null>(null);
@@ -127,14 +130,26 @@ export function useIssuePeekPosition() {
   return useContext(IssuePeekPositionContext);
 }
 
-/**
- * Handlers for an issue link (`AppLink`) that opens the peek on Shift+Click.
- * On web this takes the gesture from the browser's "open in new window", which
- * AppLink otherwise leaves alone. Empty outside a peek host, so the link keeps
- * its usual behavior there.
- */
+/** Shared by card/row links and the table's non-link click targets. */
+export function useIssuePeekClick() {
+  const peek = useIssuePeekActions();
+  const openMode = useIssueOpeningStore((s) => s.openMode);
+  return useCallback((issueId: string, event?: React.MouseEvent) => {
+    if (!peek || event?.defaultPrevented) return false;
+    if (event ? !isPeekClick(event, openMode) : openMode !== "peek") return false;
+    event?.preventDefault();
+    // An ordinary click opens (or keeps open) the issue. Only the explicit
+    // preview shortcut toggles it closed, matching Space.
+    if (event?.shiftKey) peek.toggle(issueId);
+    else peek.open(issueId);
+    return true;
+  }, [peek, openMode]);
+}
+
+/** Empty outside a peek host, so other issue links retain normal navigation. */
 export function useIssuePeekLinkProps(issueId: string) {
   const peek = useIssuePeekActions();
+  const handlePeekClick = useIssuePeekClick();
   return useMemo(
     () =>
       peek
@@ -144,12 +159,10 @@ export function useIssuePeekLinkProps(issueId: string) {
               if (event.shiftKey) event.preventDefault();
             },
             onClick: (event: React.MouseEvent) => {
-              if (!isPeekClick(event)) return;
-              event.preventDefault();
-              peek.toggle(issueId);
+              handlePeekClick(issueId, event);
             },
           }
         : {},
-    [peek, issueId],
+    [peek, handlePeekClick, issueId],
   );
 }

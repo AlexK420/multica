@@ -169,10 +169,10 @@
       "after_run": "本轮结束后开始",
       "hint": "只决定默认选项，每条消息发送前仍可单独修改。"
     },
-    "issue_title": "任务创建",
+    "issue_title": "任务",
     "comments_title": "评论",
     "device_hint": "保存在当前设备上。",
-    "issue_scope": "这些偏好仅对当前设备上的当前工作区生效，只影响创建任务时显示的字段。"
+    "issue_scope": "下方的新建任务字段设置保存在当前设备，仅适用于当前工作区。"
   },
   "shortcuts": {
     "title": "快捷键",
@@ -312,6 +312,12 @@
     "floating_hint": "在每个页面显示悬浮聊天按钮。"
   },
   "issue": {
+    "opening": {
+      "title": "打开任务",
+      "click": "点击卡片或列表行",
+      "page": "打开详情页",
+      "peek": "悬浮预览"
+    },
     "description": "选择各创建方式的工具栏中常驻显示的字段。隐藏的字段仍可从 ⋯ 菜单使用，有值时会自动显示。",
     "quick_create_title": "智能体创建工具栏字段",
     "manual_create_title": "手动创建工具栏字段",

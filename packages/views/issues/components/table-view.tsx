@@ -130,7 +130,7 @@ import { useIssueSurfaceActionsOptional } from "../surface/actions-context";
 import { useIssueSurfaceSelection } from "../surface/selection-context";
 import {
   PEEK_TARGET_ATTR,
-  isPeekClick,
+  useIssuePeekClick,
   useIssuePeekActions,
   useIssuePeekId,
 } from "../surface/peek-context";
@@ -2099,6 +2099,7 @@ export function TableView({
   // Side peek steps through the loaded rows top to bottom.
   const peek = useIssuePeekActions();
   const peekedId = useIssuePeekId();
+  const handlePeekClick = useIssuePeekClick();
   useEffect(() => {
     peek?.publishColumns([visibleIssueIds]);
   }, [peek, visibleIssueIds]);
@@ -2160,12 +2161,9 @@ export function TableView({
 
   const openIssue = useCallback(
     (issue: Issue, event?: React.MouseEvent) => {
-      // Shift+Click opens the side peek. A row is not a link, so the browser
-      // has no shift-click behavior to lose — only its selection extension,
-      // which the click leaves behind and this clears.
-      if (peek && event && isPeekClick(event)) {
-        window.getSelection()?.removeAllRanges();
-        peek.toggle(issue.id);
+      // Match card links, including the preferred default and modifier keys.
+      if (handlePeekClick(issue.id, event)) {
+        if (event?.shiftKey) window.getSelection()?.removeAllRanges();
         return;
       }
       // Standard link semantics: plain click navigates in place; modifier /
@@ -2177,7 +2175,7 @@ export function TableView({
         issue.identifier,
       );
     },
-    [intentNavigate, paths, peek],
+    [intentNavigate, paths, handlePeekClick],
   );
 
   const createSubIssue = useCallback(

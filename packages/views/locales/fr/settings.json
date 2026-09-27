@@ -169,10 +169,10 @@
       "after_run": "Démarrer après cette exécution",
       "hint": "Définit seulement le choix par défaut. Vous pouvez le modifier pour chaque message avant l'envoi."
     },
-    "issue_title": "Création de tâches",
+    "issue_title": "Tâches",
     "comments_title": "Commentaires",
     "device_hint": "Enregistré sur cet appareil.",
-    "issue_scope": "Ces préférences s'appliquent à cet espace de travail sur cet appareil. Elles modifient uniquement les champs visibles lors de la création d'une tâche."
+    "issue_scope": "Les champs de création ci-dessous sont enregistrés pour cet espace de travail sur cet appareil."
   },
   "shortcuts": {
     "title": "Raccourcis clavier",
@@ -312,6 +312,12 @@
     "floating_hint": "Afficher le bouton de chat flottant sur chaque page."
   },
   "issue": {
+    "opening": {
+      "title": "Ouverture des tâches",
+      "click": "Clic sur une carte ou une ligne",
+      "page": "Ouvrir la page complète",
+      "peek": "Ouvrir l’aperçu latéral"
+    },
     "description": "Choisissez les champs que chaque fenêtre de création garde dans sa barre d'outils. Les champs masqués restent accessibles depuis le menu ⋯ et réapparaissent tant qu'ils contiennent une valeur.",
     "quick_create_title": "Champs de la barre de création avec un agent",
     "manual_create_title": "Champs de la barre de création manuelle",

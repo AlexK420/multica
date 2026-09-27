@@ -389,7 +389,7 @@ describe("Preferences sections", () => {
         <PreferencesTab />
       </I18nWrapper>,
     );
-    expect(screen.getByRole("tab", { name: "Issue creation" })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "Issues" })).toHaveAttribute(
       "aria-selected",
       "true",
     );

@@ -1,3 +1,4 @@
+import { useIssueOpeningStore } from "@multica/core/issues/stores/issue-opening-store";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cleanup, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -10,6 +11,7 @@ import { renderWithI18n } from "../../test/i18n";
 import { IssueTab } from "./issue-tab";
 
 function resetStore() {
+  useIssueOpeningStore.setState({ openMode: "page" });
   useIssueCreateSettingsStore.setState({
     quickCreateFields: DEFAULT_QUICK_CREATE_FIELDS,
     manualCreateFields: DEFAULT_MANUAL_CREATE_FIELDS,
@@ -22,6 +24,17 @@ describe("IssueTab", () => {
   afterEach(() => {
     cleanup();
     resetStore();
+  });
+
+  it("changes the default click behavior from full page to side preview", async () => {
+    const user = userEvent.setup();
+    renderWithI18n(<IssueTab />);
+    const trigger = screen.getByRole("combobox", { name: "Clicking a card or row" });
+    expect(trigger).toHaveTextContent("Open full page");
+    await user.click(trigger);
+    await user.click(screen.getByRole("option", { name: "Open side preview" }));
+    expect(useIssueOpeningStore.getState().openMode).toBe("peek");
+    expect(trigger).toHaveTextContent("Open side preview");
   });
 
   it("renders a switch per field with the persisted selection", () => {
