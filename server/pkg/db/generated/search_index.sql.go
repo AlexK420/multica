@@ -60,7 +60,7 @@ type GetSearchIndexManifestRow struct {
 
 // Local search index sync (MUL-7754). Web and Desktop copy the issue, comment,
 // and project text of a workspace, then catch up through search_index_change.
-// Snapshots are exchanged as pg_snapshot text; see migration 553.
+// Snapshots are exchanged as pg_snapshot text; see migration 561.
 // Taken before any snapshot page, so every write the pages might miss is newer
 // than this snapshot and reaches the client through the change log. The byte
 // totals let the client reject a workspace too large for its memory budget

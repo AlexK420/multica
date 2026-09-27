@@ -129,9 +129,12 @@ test.describe("Local search index", () => {
       await owner.removeMember(memberId);
 
       // The client relocates to a workspace the user still has; the removed
-      // workspace's copy must not survive on the device.
+      // workspace's copy must not survive on the device. A read that fails
+      // mid-navigation counts as "still there", so polling continues until a
+      // successful read confirms the deletion.
+      const unreadable = [`multica-search-index:unreadable:${shared.id}`];
       await expect
-        .poll(async () => sharedCopy(await searchIndexDatabases(page).catch(() => [shared.id])), { timeout: 20_000 })
+        .poll(async () => sharedCopy(await searchIndexDatabases(page).catch(() => unreadable)), { timeout: 20_000 })
         .toBe(false);
     } finally {
       await owner.cleanup();

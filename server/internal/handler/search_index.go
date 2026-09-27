@@ -27,7 +27,7 @@ import (
 // Web and Desktop keep a per-workspace copy of issue, comment, and project text
 // and search it locally. A client bootstraps with GET /manifest (which pins the
 // snapshot the copy starts from) followed by GET /snapshot pages, then catches
-// up with POST /changes. Catch-up reads search_index_change (migration 553):
+// up with POST /changes. Catch-up reads search_index_change (migration 561):
 // an entity is returned when its latest write committed in the target snapshot
 // but not in the snapshot the client already holds. Comparing xids against
 // pg_snapshot values is exact under any commit order and is not held back by
