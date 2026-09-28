@@ -381,7 +381,7 @@ func (s *IssueWakeupService) mayJoin(ctx context.Context, q *db.Queries, issue d
 	if err != nil || runAs.UserID != task.OriginatorUserID {
 		return "", false, err
 	}
-	instruction, err := s.childDoneRunInstruction(ctx, q, w, agent)
+	instruction, _, err := s.childDoneRunInstruction(ctx, q, w, agent)
 	if err != nil {
 		return "", false, err
 	}

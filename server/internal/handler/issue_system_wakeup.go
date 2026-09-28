@@ -34,11 +34,13 @@ type systemWakeupResponse struct {
 	Rule     string `json:"rule"`
 	Enabled  bool   `json:"enabled"`
 	// Instruction is set on this issue; DefaultInstruction is what runs
-	// receive when it is empty (the workspace's, else the platform's).
-	Instruction        string  `json:"instruction"`
-	DefaultInstruction string  `json:"default_instruction"`
-	Customized         bool    `json:"customized"`
-	PausedReason       *string `json:"paused_reason"`
+	// receive when it is empty (the workspace's, else the platform's), or
+	// when InstructionInactive: whoever set it cannot use the agent it wakes.
+	Instruction         string  `json:"instruction"`
+	DefaultInstruction  string  `json:"default_instruction"`
+	InstructionInactive bool    `json:"instruction_inactive"`
+	Customized          bool    `json:"customized"`
+	PausedReason        *string `json:"paused_reason"`
 	// Staged is true while a stage is open; Stage is the lowest open one.
 	// Otherwise the rule waits for every sub-issue.
 	Staged    bool   `json:"staged"`
@@ -135,6 +137,11 @@ func (h *Handler) childDoneSystemWakeup(r *http.Request, parent db.Issue) (*syst
 		if rule.PausedReason.Valid {
 			out.PausedReason = &rule.PausedReason.String
 		}
+		inEffect, err := (&service.IssueWakeupService{Tasks: h.TaskService}).ChildDoneInstructionInEffect(ctx, rule, parent)
+		if err != nil {
+			return nil, err
+		}
+		out.InstructionInactive = !inEffect
 	}
 	switch {
 	case !parent.AssigneeType.Valid || !parent.AssigneeID.Valid:

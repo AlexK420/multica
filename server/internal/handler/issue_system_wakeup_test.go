@@ -187,6 +187,9 @@ func TestSystemWakeupInstructionNeedsTheAgent(t *testing.T) {
 		if code := put(ownerID, map[string]any{"instruction": "Summarize for the owner."}); code != http.StatusOK {
 			t.Fatalf("owner instruction: %d", code)
 		}
+		if rules := listSystemWakeupsFor(t, fx.parent.ID); len(rules) != 1 || rules[0].InstructionInactive {
+			t.Fatalf("owner's instruction reads as not in effect: %+v", rules)
+		}
 		if code := put(memberID, map[string]any{"enabled": true, "instruction": "Summarize for the owner."}); code != http.StatusOK {
 			t.Fatalf("member resaving the owner's text: %d", code)
 		}
@@ -205,6 +208,9 @@ func TestSystemWakeupInstructionNeedsTheAgent(t *testing.T) {
 			t.Fatalf("save: %d %s", w.Code, w.Body.String())
 		}
 		setIssueAssigneeDirect(t, fx.parent.ID, "agent", agentID)
+		if rules := listSystemWakeupsFor(t, fx.parent.ID); len(rules) != 1 || !rules[0].InstructionInactive {
+			t.Fatalf("instruction its author cannot give reads as in effect: %+v", rules)
+		}
 		updateChildStatus(t, fx.child.ID, "done")
 		runs := childDoneRuns(t, fx.parent.ID)
 		if len(runs) != 1 || strings.Contains(runs[0].Note, "Forward the owner's mail") || !strings.Contains(runs[0].Note, service.ChildDoneDefaultInstruction) {

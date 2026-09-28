@@ -75,11 +75,11 @@ func ChildDoneInstruction(issueInstruction string, settings []byte) string {
 }
 
 // childDoneRunInstruction is the instruction a child_done run of this agent
-// gets. The issue's instruction is a person's request to the agent, so it
-// applies only while the person who set it may use that agent, the same gate
-// as their own wakeups; otherwise the run gets the default, as if the issue
-// set none.
-func (s *IssueWakeupService) childDoneRunInstruction(ctx context.Context, q *db.Queries, w db.IssueWakeup, agent db.Agent) (string, error) {
+// gets, and who set it when it is the issue's. The issue's instruction is a
+// person's request to the agent, so it applies only while the person who set
+// it may use that agent, the same gate as their own wakeups; otherwise the run
+// gets the default, as if the issue set none.
+func (s *IssueWakeupService) childDoneRunInstruction(ctx context.Context, q *db.Queries, w db.IssueWakeup, agent db.Agent) (string, pgtype.UUID, error) {
 	var settings []byte
 	if ws, err := q.GetWorkspace(ctx, w.WorkspaceID); err == nil {
 		settings = ws.Settings
@@ -88,12 +88,33 @@ func (s *IssueWakeupService) childDoneRunInstruction(ctx context.Context, q *db.
 	if instruction != "" {
 		if err := s.authorize(ctx, q, w.WorkspaceID, w.InstructionBy, agent); err != nil {
 			if !errors.Is(err, ErrWakeupForbidden) {
-				return "", err
+				return "", pgtype.UUID{}, err
 			}
 			instruction = ""
 		}
 	}
-	return ChildDoneInstruction(instruction, settings), nil
+	if instruction == "" {
+		return ChildDoneInstruction("", settings), pgtype.UUID{}, nil
+	}
+	return instruction, w.InstructionBy, nil
+}
+
+// ChildDoneInstructionInEffect reports whether the runs the rule would start
+// now get the issue's instruction: whoever set it may use the agent the rule
+// wakes. With no instruction, or no agent to wake, there is nothing to hold
+// back.
+func (s *IssueWakeupService) ChildDoneInstructionInEffect(ctx context.Context, rule db.IssueWakeup, issue db.Issue) (bool, error) {
+	if strings.TrimSpace(rule.Instruction) == "" {
+		return true, nil
+	}
+	target, err := resolveWakeTarget(ctx, s.Tasks.Queries, issue)
+	if err != nil || !target.Agent.ID.Valid {
+		return err == nil, err
+	}
+	if err = s.authorize(ctx, s.Tasks.Queries, rule.WorkspaceID, rule.InstructionBy, target.Agent); errors.Is(err, ErrWakeupForbidden) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 func systemRuleText(rule string) pgtype.Text { return pgtype.Text{String: rule, Valid: true} }
@@ -595,7 +616,16 @@ func (s *IssueWakeupService) dispatchSystem(ctx context.Context, prev db.IssueWa
 		return commit()
 	}
 	agent := current.Agent
-	task, err := q.FindPendingWakeupTask(ctx, util.UUIDToString(w.ID))
+	attr, err := s.childDoneRunAs(ctx, issue, agent)
+	if err != nil {
+		return err
+	}
+	// Only a run for this recipient takes the new facts and the instruction
+	// checked against its agent; one left for an earlier assignee keeps what
+	// it was given.
+	task, err := q.FindPendingSystemWakeupTask(ctx, db.FindPendingSystemWakeupTaskParams{
+		WakeupID: util.UUIDToString(w.ID), AgentID: agent.ID, RuntimeID: agent.RuntimeID, SquadID: current.SquadID, OriginatorUserID: attr.UserID,
+	})
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
@@ -605,7 +635,7 @@ func (s *IssueWakeupService) dispatchSystem(ctx context.Context, prev db.IssueWa
 		return tx.Commit(ctx)
 	}
 	instruction := w
-	if instruction.Instruction, err = s.childDoneRunInstruction(ctx, q, w, agent); err != nil {
+	if instruction.Instruction, instruction.InstructionBy, err = s.childDoneRunInstruction(ctx, q, w, agent); err != nil {
 		return err
 	}
 	noteText, evidence := mergeWakeupEvidence(instruction, task, receipts)
@@ -635,10 +665,6 @@ func (s *IssueWakeupService) dispatchSystem(ctx context.Context, prev db.IssueWa
 			return err
 		}
 		return commit()
-	}
-	attr, err := s.childDoneRunAs(ctx, issue, agent)
-	if err != nil {
-		return err
 	}
 	waiting, err := hasWaitingRun(ctx, q, issue.ID, agent.ID, attr.UserID)
 	if err != nil {

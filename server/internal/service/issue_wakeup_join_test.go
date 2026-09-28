@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -194,6 +195,70 @@ func TestJoinedChildDoneRuleChecksWhoSetTheInstruction(t *testing.T) {
 				t.Fatalf("joined run notes: %q", notes)
 			}
 		})
+	}
+}
+
+// A run the sub-issue rule queued for an earlier assignee never takes an
+// instruction set for the next one, and its claim checks whoever set the
+// instruction it carries against its own agent.
+func TestQueuedChildDoneRunKeepsItsRecipientsInstruction(t *testing.T) {
+	f, s, issue, first := conditionFixture(t)
+	ctx := context.Background()
+	f.Exec(t, "UPDATE issue SET status='in_progress',assignee_type='agent',assignee_id=$2 WHERE id=$1", issue, first)
+	child := f.Issue(t, "child", testutil.Cols{"parent_issue_id": issue, "status": "in_progress"})
+	f.Cleanup(t, "DELETE FROM issue_child_event WHERE parent_id=$1", issue)
+	if err := s.ProcessChildEvents(ctx, issue); err != nil {
+		t.Fatal(err)
+	}
+	finish := func(status string) {
+		t.Helper()
+		f.Exec(t, "UPDATE issue SET status=$2 WHERE id=$1", child, status)
+		if err := s.ProcessChildEvents(ctx, issue); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The first agent's run is queued; its daemon has not claimed it.
+	finish("done")
+	var queued string
+	f.QueryRow(t, "SELECT id FROM agent_task_queue WHERE issue_id=$1 AND agent_id=$2 AND status='queued' AND context ? 'wakeup_system'", issue, first).Scan(&queued)
+	// The parent moves to an agent another member may use, who sets an
+	// instruction; a sub-issue reopens and finishes again.
+	other := f.member(t, "wake-next-owner")
+	next := f.privateAgentOwnedBy(t, other, "wake-next")
+	f.Exec(t, "UPDATE issue SET assignee_id=$2 WHERE id=$1", issue, next)
+	instruction := "Send me the first agent's notes"
+	if _, err := s.UpdateChildDoneRule(ctx, issue, parseTestUUID(t, other), SystemWakeupInput{Instruction: &instruction}); err != nil {
+		t.Fatal(err)
+	}
+	finish("in_progress")
+	finish("done")
+	note := func(agent string) string {
+		t.Helper()
+		var note string
+		f.QueryRow(t, "SELECT COALESCE(handoff_note,'') FROM agent_task_queue WHERE issue_id=$1 AND agent_id=$2 AND status='queued' AND context ? 'wakeup_system'", issue, agent).Scan(&note)
+		return note
+	}
+	if strings.Contains(note(first), instruction) {
+		t.Fatalf("the earlier assignee's run took the new instruction: %q", note(first))
+	}
+	if !strings.Contains(note(next), instruction) {
+		t.Fatalf("the current assignee's run lacks its instruction: %q", note(next))
+	}
+	claim := func() error {
+		t.Helper()
+		task, err := f.q.GetAgentTask(ctx, parseTestUUID(t, queued))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s.CheckClaim(ctx, task)
+	}
+	if err := claim(); err != nil {
+		t.Fatalf("the first agent's own run is refused: %v", err)
+	}
+	// Had the instruction reached it anyway, the claim refuses the run.
+	f.Exec(t, "UPDATE agent_task_queue SET context=jsonb_set(context,'{wakeup_evidence,instruction_by}',to_jsonb($2::text)) WHERE id=$1", queued, other)
+	if err := claim(); !errors.Is(err, ErrWakeupForbidden) {
+		t.Fatalf("claim with an instruction its author cannot give: %v", err)
 	}
 }
 

@@ -19,6 +19,16 @@ UPDATE issue_wakeup SET enabled= @enabled,instruction= @instruction,instruction_
  updated_at=clock_timestamp()
 WHERE id= @id RETURNING *;
 
+-- name: FindPendingSystemWakeupTask :one
+-- The rule's own run waiting for this recipient: the agent on this runtime,
+-- in this squad role, run as this person. A run a firing left for an earlier
+-- assignee is not it and never takes on later inputs.
+SELECT * FROM agent_task_queue WHERE context->>'wakeup_id'= @wakeup_id::text AND status IN ('queued','dispatched')
+ AND agent_id= @agent_id AND runtime_id= @runtime_id
+ AND squad_id IS NOT DISTINCT FROM sqlc.narg(squad_id)::uuid
+ AND originator_user_id IS NOT DISTINCT FROM sqlc.narg(originator_user_id)::uuid
+ORDER BY created_at LIMIT 1 FOR UPDATE;
+
 -- name: ApplySystemWakeupDefault :many
 -- The workspace default changed. Rules nobody customized and the platform did
 -- not pause follow it.
