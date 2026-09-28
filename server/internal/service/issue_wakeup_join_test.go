@@ -149,7 +149,7 @@ func TestTurnedOffChildDoneRuleLeavesARequeuedRun(t *testing.T) {
 			wakeRequeue(t, f, s, waiting)
 			off := false
 			if scope == "issue" {
-				if _, err := s.UpdateChildDoneRule(ctx, issue, SystemWakeupInput{Enabled: &off}); err != nil {
+				if _, err := s.UpdateChildDoneRule(ctx, issue, pgtype.UUID{}, SystemWakeupInput{Enabled: &off}); err != nil {
 					t.Fatal(err)
 				}
 			} else if _, err := s.SetChildDoneDefault(ctx, parseTestUUID(t, f.WorkspaceID), &off, nil); err != nil {
@@ -157,6 +157,41 @@ func TestTurnedOffChildDoneRuleLeavesARequeuedRun(t *testing.T) {
 			}
 			if notes := wakeClaim(t, f, s, waiting); notes != "" {
 				t.Fatalf("the turned-off rule still reaches the run: %q", notes)
+			}
+		})
+	}
+}
+
+// A person's instruction on the sub-issue rule reaches a run that joins it
+// only while that person may use the agent; otherwise the run gets the default.
+func TestJoinedChildDoneRuleChecksWhoSetTheInstruction(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		byOwner bool
+	}{{"set by the agent's owner", true}, {"set by someone who cannot use the agent", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, s, issue, agent := conditionFixture(t)
+			ctx := context.Background()
+			f.Exec(t, "UPDATE issue SET status='in_progress',assignee_type='agent',assignee_id=$2 WHERE id=$1", issue, agent)
+			child := f.Issue(t, "child", testutil.Cols{"parent_issue_id": issue, "status": "in_progress"})
+			f.Cleanup(t, "DELETE FROM issue_child_event WHERE parent_id=$1", issue)
+			if err := s.ProcessChildEvents(ctx, issue); err != nil {
+				t.Fatal(err)
+			}
+			author := f.UserID
+			if !tc.byOwner {
+				author = f.member(t, "wake-instruction")
+			}
+			// Written directly, as if the agent changed hands after it was set.
+			f.Exec(t, "UPDATE issue_wakeup SET instruction='Report to the author',instruction_by=$2,customized_at=now() WHERE issue_id=$1 AND system_rule='child_done'", issue, author)
+			waiting := wakeWaitingRun(t, f, issue, agent, f.UserID)
+			f.Exec(t, "UPDATE issue SET status='done' WHERE id=$1", child)
+			if err := s.ProcessChildEvents(ctx, issue); err != nil {
+				t.Fatal(err)
+			}
+			notes := wakeClaim(t, f, s, waiting)
+			if notes == "" || strings.Contains(notes, "Report to the author") != tc.byOwner || strings.Contains(notes, ChildDoneDefaultInstruction) == tc.byOwner {
+				t.Fatalf("joined run notes: %q", notes)
 			}
 		})
 	}

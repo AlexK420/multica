@@ -189,9 +189,10 @@ func (h *Handler) ListIssueSystemWakeups(w http.ResponseWriter, r *http.Request)
 }
 
 // systemWakeupHuman requires a person: agents cannot change platform rules.
-// Any workspace member who can see the issue may change it on that issue:
-// the rule wakes the issue's own assignee, whose invocation was already
-// authorized when the issue was assigned.
+// Any workspace member who can see the issue may turn it on or off there: the
+// rule wakes the issue's own assignee, whose invocation was already
+// authorized when the issue was assigned. Setting its instruction also takes
+// permission to use the agent it wakes (UpdateChildDoneRule).
 func (h *Handler) systemWakeupHuman(w http.ResponseWriter, r *http.Request, workspaceID string) (db.Member, bool) {
 	actorType, actorID := h.resolveActor(r, requestUserID(r), workspaceID)
 	if actorType != "member" {
@@ -225,12 +226,17 @@ func (h *Handler) UpdateIssueSystemWakeup(w http.ResponseWriter, r *http.Request
 		writeError(w, 400, "invalid system wakeup body")
 		return
 	}
-	if _, ok := h.systemWakeupHuman(w, r, uuidToString(issue.WorkspaceID)); !ok {
+	member, ok := h.systemWakeupHuman(w, r, uuidToString(issue.WorkspaceID))
+	if !ok {
 		return
 	}
-	if _, err := (&service.IssueWakeupService{Tasks: h.TaskService}).UpdateChildDoneRule(r.Context(), issue.ID, in); err != nil {
+	if _, err := (&service.IssueWakeupService{Tasks: h.TaskService}).UpdateChildDoneRule(r.Context(), issue.ID, member.UserID, in); err != nil {
 		if errors.Is(err, service.ErrWakeupInput) {
 			writeError(w, 400, err.Error())
+			return
+		}
+		if errors.Is(err, service.ErrWakeupForbidden) {
+			writeError(w, 403, "only members who can use the assigned agent can change its instruction")
 			return
 		}
 		slog.Warn("update system wakeup failed", "error", err, "issue_id", uuidToString(issue.ID))

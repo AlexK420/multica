@@ -11,8 +11,9 @@ RETURNING *;
 
 -- name: CustomizeSystemWakeup :one
 -- A person changed the rule on this issue; it stops following the workspace
--- default. Turning it on clears a platform pause.
-UPDATE issue_wakeup SET enabled= @enabled,instruction= @instruction,customized_at=clock_timestamp(),
+-- default. Turning it on clears a platform pause. instruction_by is whoever
+-- set the instruction (NULL when there is none).
+UPDATE issue_wakeup SET enabled= @enabled,instruction= @instruction,instruction_by=sqlc.narg(instruction_by),customized_at=clock_timestamp(),
  paused_reason=CASE WHEN @enabled::bool THEN NULL ELSE paused_reason END,
  disabled_at=CASE WHEN @enabled::bool THEN NULL ELSE disabled_at END,
  updated_at=clock_timestamp()
