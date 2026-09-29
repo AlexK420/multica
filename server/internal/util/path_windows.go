@@ -256,6 +256,23 @@ func win32FromExtendedLength(p string) (string, bool) {
 	return p, false
 }
 
+// canonicalSpelling gives a path evalPath already resolved the spelling
+// filepath.EvalSymlinks would: the on-disk case and long name of every
+// component. evalPath keeps each component as written, so without this a
+// caller switching from EvalSymlinks would see the same directory spelled
+// differently — an 8.3 short name on one side of a containment check and the
+// long name on the other would read as two directories. The resolved path has
+// no link left in it, which is the one shape EvalSymlinks handles correctly
+// here. When it still cannot answer — a non-redirecting reparse point such as
+// a cloud placeholder, which it cannot walk through — the walk's spelling
+// stands.
+func canonicalSpelling(resolved string) string {
+	if norm, err := filepath.EvalSymlinks(resolved); err == nil {
+		return norm
+	}
+	return resolved
+}
+
 // sameWin32Path compares the path a handle names with the path the walk is
 // standing on. GetFinalPathNameByHandle answers in extended-length form; both
 // sides are reduced to plain Win32 before comparing, case-insensitively, the

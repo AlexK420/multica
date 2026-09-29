@@ -3,6 +3,8 @@
 package util
 
 import (
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -148,4 +150,77 @@ func TestClassifyTarget(t *testing.T) {
 			t.Fatalf("classifyTarget(%q) base = %q, want the volume root %q", vol+`\outside\dir`, base, vol+sep)
 		}
 	})
+}
+
+// mklinkJunction makes dst a directory junction to src. mklink /J is used
+// directly so the junction shape is exercised even on a runner where symlinks
+// are permitted.
+func mklinkJunction(t *testing.T, src, dst string) {
+	t.Helper()
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", dst, src).CombinedOutput(); err != nil {
+		t.Fatalf("mklink /J %s %s: %s: %v", dst, src, out, err)
+	}
+}
+
+// TestResolveSymlinksFollowsJunctions is #8946. A workspaces root moved to
+// another drive and left behind as a junction put a junction in the MIDDLE of
+// every task path, where filepath.EvalSymlinks fails with ENOTDIR, and the
+// checkout authorization built on it refused every checkout. A junction at the
+// END of a path is the opposite failure: EvalSymlinks returns it unfollowed,
+// so a junction pointing out of a workdir reads as inside it. ResolveSymlinks
+// must follow both, fail on a missing component, and — for the spelling
+// callers compare — land on exactly what EvalSymlinks gives the junction-free
+// path (t.TempDir sits under an 8.3 short name on hosted runners, which is
+// what the spelling check exercises).
+func TestResolveSymlinksFollowsJunctions(t *testing.T) {
+	target := t.TempDir()
+	workdirViaTarget := filepath.Join(target, "ws", "task", "workdir")
+	if err := os.MkdirAll(workdirViaTarget, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	root := filepath.Join(t.TempDir(), "multica_workspaces")
+	mklinkJunction(t, target, root)
+	outside := t.TempDir()
+	escape := filepath.Join(workdirViaTarget, "escape")
+	mklinkJunction(t, outside, escape)
+
+	workdirViaRoot := filepath.Join(root, "ws", "task", "workdir")
+	if _, err := filepath.EvalSymlinks(workdirViaRoot); err == nil {
+		t.Logf("filepath.EvalSymlinks now passes through a junction on this platform; ResolveSymlinks is still required for a junction at the end of a path")
+	}
+
+	wantWorkdir, err := filepath.EvalSymlinks(workdirViaTarget)
+	if err != nil {
+		t.Fatalf("resolve target workdir: %v", err)
+	}
+	wantOutside, err := filepath.EvalSymlinks(outside)
+	if err != nil {
+		t.Fatalf("resolve outside: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "junction in the middle of the path", in: workdirViaRoot, want: wantWorkdir},
+		{name: "junction-free path keeps EvalSymlinks' spelling", in: workdirViaTarget, want: wantWorkdir},
+		{name: "junction at the end of the path is followed", in: escape, want: wantOutside},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ResolveSymlinks(tc.in)
+			if err != nil {
+				t.Fatalf("ResolveSymlinks(%q): %v", tc.in, err)
+			}
+			if got != tc.want {
+				t.Fatalf("ResolveSymlinks(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+
+	missing := filepath.Join(root, "ws", "missing")
+	if got, err := ResolveSymlinks(missing); err == nil {
+		t.Fatalf("ResolveSymlinks(%q) = %q; a missing component behind a junction must be an error", missing, got)
+	}
 }

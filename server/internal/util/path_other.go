@@ -35,3 +35,9 @@ func absNoClean(p string) string {
 func evalPath(p string) (string, error) {
 	return filepath.EvalSymlinks(p)
 }
+
+// canonicalSpelling is the identity on Unix: evalPath is filepath.EvalSymlinks
+// here, so its result is already the spelling callers compare against.
+func canonicalSpelling(resolved string) string {
+	return resolved
+}
