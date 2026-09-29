@@ -99,6 +99,45 @@ func TestAuthorizeRepoCheckoutWorkDirFollowsJunctionsInsideTheWorkdir(t *testing
 	}
 }
 
+// With the active workdir spelled in extended-length form (a workspaces_root
+// configured as `\\?\C:\...`), both sides of the check are device-namespace
+// strings. A resolver that hands those back unwalked compares them lexically,
+// and a junction inside the workdir then escapes it; the old EvalSymlinks
+// check refused that path, and so must this one.
+func TestAuthorizeRepoCheckoutWorkDirExtendedLengthSpelling(t *testing.T) {
+	workDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workDir, "sub"), 0o755); err != nil {
+		t.Fatalf("mkdir workdir: %v", err)
+	}
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outside, "sub"), 0o755); err != nil {
+		t.Fatalf("mkdir outside: %v", err)
+	}
+	createJunction(t, outside, filepath.Join(workDir, "escape"))
+	active := `\\?\` + workDir
+	want, err := filepath.EvalSymlinks(filepath.Join(workDir, "sub"))
+	if err != nil {
+		t.Fatalf("resolve workdir: %v", err)
+	}
+
+	got, err := authorizeRepoCheckoutWorkDir(active, `\\?\`+filepath.Join(workDir, "sub"))
+	if err != nil {
+		t.Fatalf("an extended-length subdirectory of the workdir was refused: %v", err)
+	}
+	if !strings.EqualFold(got, want) {
+		t.Fatalf("authorized workdir = %q, want %q", got, want)
+	}
+
+	for _, requested := range []string{
+		`\\?\` + filepath.Join(workDir, "escape", "sub"),
+		`\\?\` + filepath.Join(workDir, "missing"),
+	} {
+		if got, err := authorizeRepoCheckoutWorkDir(active, requested); err == nil {
+			t.Fatalf("authorizeRepoCheckoutWorkDir(%q, %q) accepted %q", active, requested, got)
+		}
+	}
+}
+
 func TestShouldReusePriorWorkdirThroughJunctionedRoot(t *testing.T) {
 	root, target := junctionedWorkspacesRoot(t)
 	workDir := filepath.Join(root, "ws-leader", "12345678", "workdir")

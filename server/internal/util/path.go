@@ -29,6 +29,12 @@ var ErrUnresolvablePath = errors.New("path resolution cannot be determined")
 // drive and left behind as a junction, #8946), and returns a junction at the
 // END of a path unfollowed, so a link out of the root reads as inside it.
 //
+// Every location it returns was walked component by component. On Windows a
+// path that can only be spelled in the device namespace — a volume GUID, a raw
+// device, or a link into one — is ErrUnresolvablePath rather than a lexical
+// answer, because two such strings can compare as nested while a junction
+// between them leads somewhere else entirely (see evalPathStrict).
+//
 // On Unix this is filepath.EvalSymlinks. On Windows a path with no junction in
 // it keeps the spelling filepath.EvalSymlinks gives it (see canonicalSpelling),
 // so switching a caller over changes nothing for such paths.
@@ -39,7 +45,7 @@ func ResolveSymlinks(p string) (string, error) {
 	if !filepath.IsAbs(abs) {
 		return "", fmt.Errorf("%w: %q has no observable base to resolve against", ErrUnresolvablePath, p)
 	}
-	resolved, err := evalPath(abs)
+	resolved, err := evalPathStrict(abs)
 	if err != nil {
 		return "", err
 	}
