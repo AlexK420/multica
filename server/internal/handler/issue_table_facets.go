@@ -218,15 +218,16 @@ func (h *Handler) issueTableFacetQuery(w http.ResponseWriter, r *http.Request, r
 		// comes from the surface's own compiled scope + filters instead of a
 		// second, independent workspace-wide definition. That is what keeps the
 		// header chip's count equal to the rows clicking it leaves (MUL-5525).
-		// Materialize the workspace's visible running issue work separately so
-		// the task scan can use (agent_id, status) before applying surface filters.
-		// The optimizer still chooses how to join that set to issues.
+		// Join the unique visible-agent ids as a relation. With a large roster,
+		// ANY(array) can become a per-task linear filter on a global running
+		// scan; a relation also permits a hash join. Materialization bounds the
+		// intermediate set, not the optimizer's task access or issue join plan.
 		query = fmt.Sprintf(`WITH running AS MATERIALIZED (
   SELECT atq.agent_id, atq.issue_id
-  FROM agent_task_queue atq
-  WHERE atq.agent_id = ANY($%d::uuid[])
-    AND atq.status = 'running'
-    AND atq.chat_session_id IS NULL
+  FROM unnest($%d::uuid[]) AS cand(agent_id)
+  JOIN agent_task_queue atq
+    ON atq.agent_id = cand.agent_id AND atq.status = 'running'
+  WHERE atq.chat_session_id IS NULL
     AND atq.autopilot_run_id IS NULL
     AND atq.issue_id IS NOT NULL
 )
