@@ -500,7 +500,9 @@ export function useIssueSurfaceController({
           ? { properties: effectivePropertyFilters }
           : {}),
         ...(date ? { date } : {}),
-        ...(agentRunningFilter
+        // Unknown membership must not create a temporary match-nothing query
+        // key. Dependent fetches stay gated until the projection resolves.
+        ...(agentRunningFilter && !workingFilterUnresolved
           ? { working_issue_ids: [...workingIssueIDs] }
           : {}),
         include_sub_issues: showSubIssues,
@@ -529,6 +531,7 @@ export function useIssueSurfaceController({
     statusFilters,
     viewIncludeNoProject,
     viewProjectFilters,
+    workingFilterUnresolved,
     workingIssueIDs,
   ]);
   // Every consumer below — the facet request, the status/group branch hooks and

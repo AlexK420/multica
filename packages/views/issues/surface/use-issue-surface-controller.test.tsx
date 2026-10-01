@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { setApiInstance } from "@multica/core/api";
 import type { ApiClient } from "@multica/core/api/client";
+import { workspaceWorkingAgentsKeys } from "@multica/core/agents/queries";
 import {
   getIssueSurfaceViewStore,
   pruneIssueSurfaceViewStates,
@@ -1059,7 +1060,9 @@ describe("useIssueSurfaceController", () => {
         undefined,
       ),
     );
-    expect(result.current.tableQuerySpec.filters.working_issue_ids).toEqual([]);
+    await waitFor(() =>
+      expect(result.current.tableQuerySpec.filters.working_issue_ids).toEqual([]),
+    );
   });
 
   it.each(["board", "list", "swimlane"] as const)(
@@ -1566,7 +1569,7 @@ describe("useIssueSurfaceController", () => {
     expect(getAgentTaskSnapshot).not.toHaveBeenCalled();
   });
 
-  it("waits for working membership before fetching filtered branches, and reuses it when toggled back on", async () => {
+  it("waits for working membership on activation and after cache removal, and reuses resolved membership", async () => {
     mockListByStatus({ todo: [makeIssue({ id: "todo-1", status: "todo" })] });
     let finish!: (agents: WorkspaceWorkingAgent[]) => void;
     getWorkspaceWorkingAgents.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
@@ -1582,6 +1585,7 @@ describe("useIssueSurfaceController", () => {
     expect(result.current.isLoading).toBe(true);
     expect(result.current.isEmpty).toBe(false);
     expect(result.current.isWorkingFilterError).toBe(false);
+    expect(result.current.tableQuerySpec.filters.working_issue_ids).toBeUndefined();
     expect(listIssueTableRows).not.toHaveBeenCalled();
     expect(submenuFacetCalls(listIssueTableFacets)).toHaveLength(0);
     await act(async () => finish([makeWorkingAgent("agent-1", ["todo-1"])]));
@@ -1595,6 +1599,26 @@ describe("useIssueSurfaceController", () => {
     act(() => store.getState().toggleAgentRunningFilter());
     expect(getWorkspaceWorkingAgents).toHaveBeenCalledTimes(1);
     expect(result.current.isLoading).toBe(false);
+
+    act(() => store.getState().toggleAgentRunningFilter());
+    listIssueTableRows.mockClear();
+    act(() => {
+      qc.removeQueries({ queryKey: workspaceWorkingAgentsKeys.all("ws-1") });
+      store.getState().toggleAgentRunningFilter();
+    });
+    await waitFor(() => expect(getWorkspaceWorkingAgents).toHaveBeenCalledTimes(2));
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.tableQuerySpec.filters.working_issue_ids).toBeUndefined();
+    expect(listIssueTableRows).not.toHaveBeenCalled();
+
+    // An authoritative empty response must still become an explicit empty
+    // filter; omitting it after resolution would fetch unfiltered rows.
+    await act(async () => finish([]));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.tableQuerySpec.filters.working_issue_ids).toEqual([]);
+    expect(listIssueTableRows).toHaveBeenCalledWith(expect.objectContaining({
+      query: expect.objectContaining({ filters: expect.objectContaining({ working_issue_ids: [] }) }),
+    }));
   });
 
   it("keeps Table loading until working membership resolves, and lets the filter be disabled while pending", async () => {
@@ -1624,6 +1648,7 @@ describe("useIssueSurfaceController", () => {
     );
     await waitFor(() => expect(result.current.isWorkingFilterError).toBe(true));
     expect(result.current.isEmpty).toBe(false);
+    expect(result.current.tableQuerySpec.filters.working_issue_ids).toBeUndefined();
     expect(listIssueTableRows).not.toHaveBeenCalled();
     mockWorkingAgents([makeWorkingAgent("agent-1", ["todo-1"])]);
     act(() => result.current.retryWorkingFilter());
