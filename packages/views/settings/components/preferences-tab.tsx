@@ -184,7 +184,7 @@ function LanguageRow() {
     localeAdapter.persist(next);
 
     let syncFailed = false;
-    if (user) {
+    if (user && localeAdapter.syncWithAccount !== false) {
       try {
         await api.updateMe({ language: next });
       } catch {

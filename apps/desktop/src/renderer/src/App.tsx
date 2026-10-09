@@ -438,8 +438,8 @@ export default function App() {
 
   // React to OS-level language changes detected by main on focus regain.
   // Only act when the user is following the system signal (no explicit
-  // Settings choice) — otherwise their preference wins. Cross-device sync
-  // for the explicit-choice case is handled inside CoreProvider.
+  // Settings choice) — otherwise their preference wins. This desktop fork
+  // keeps explicit language choices local instead of syncing the cloud profile.
   useEffect(() => {
     return window.desktopAPI.onSystemLocaleChanged((nextSystemLocale) => {
       if (localeAdapter.getUserChoice()) return;
@@ -470,6 +470,7 @@ export default function App() {
           locale={locale}
           resources={resources}
           localeAdapter={localeAdapter}
+          syncUserLocale={false}
         >
           <DesktopAuthSessionBridge />
           {windowContext.kind === "main" && <DiagnosticRouteReporter />}
