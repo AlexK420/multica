@@ -13,7 +13,7 @@
 // skip the build and fall through to auto-install at runtime. A genuine
 // Go compile error is fatal — you want that to block dev, not hide.
 
-import { access, chmod, copyFile, mkdir, rm } from "node:fs/promises";
+import { access, chmod, copyFile, mkdir, readFile, rm } from "node:fs/promises";
 import { constants } from "node:fs";
 import { execFileSync, execSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
@@ -103,7 +103,18 @@ async function exists(p) {
 }
 
 if (hasGo()) {
-  const version = deriveVersion() || "dev";
+  const gitVersion = deriveVersion();
+  const packageVersion = JSON.parse(
+    await readFile(join(repoRoot, "apps", "desktop", "package.json"), "utf-8"),
+  ).version;
+  if (typeof packageVersion !== "string" || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(packageVersion)) {
+    throw new Error("[bundle-cli] Invalid Desktop package version");
+  }
+  // Shallow or untagged checkouts must retain the source package version.
+  // The commit is embedded separately below, so provenance is preserved.
+  const version = !gitVersion || gitVersion.startsWith("0.0.0-g")
+    ? packageVersion
+    : gitVersion;
   const commit = git("rev-parse", "--short", "HEAD") || "unknown";
   const date = new Date().toISOString().replace(/\.\d+Z$/, "Z");
   const ldflags = `-X main.version=${version} -X main.commit=${commit} -X main.date=${date}`;
