@@ -1,0 +1,110 @@
+name: Russian macOS build
+
+on:
+  push:
+    branches:
+      - russian-macos
+
+permissions:
+  contents: read
+
+concurrency:
+  group: russian-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: macOS ${{ matrix.arch }}
+    if: github.repository == 'AlexK420/multica'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: pnpm
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Verify architecture
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          node -e '
+            if (process.arch !== process.env.EXPECTED_ARCH) {
+              throw new Error(
+                `Expected ${process.env.EXPECTED_ARCH}, got ${process.arch}`
+              );
+            }
+            console.log(process.platform, process.arch);
+          '
+          go version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify Russian translations
+        run: |
+          test -d packages/views/locales/ru
+          pnpm --dir packages/views exec vitest run locales/parity.test.ts
+
+      - name: Build desktop
+        run: |
+          DESKTOP_PACKAGE=$(node -p "require('./apps/desktop/package.json').name")
+          pnpm exec turbo run build --filter="${DESKTOP_PACKAGE}..."
+
+      - name: Check desktop types
+        run: pnpm --dir apps/desktop run typecheck
+
+      - name: Package macOS installers
+        working-directory: apps/desktop
+        env:
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: |
+          pnpm exec electron-builder \
+            --mac dmg zip \
+            --"${TARGET_ARCH}" \
+            --publish never \
+            -c.mac.identity=- \
+            -c.mac.notarize=false \
+            -c.directories.output=dist-russian
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: multica-russian-macos-${{ matrix.arch }}-${{ github.run_number }}
+          path: |
+            apps/desktop/dist-russian/*.dmg
+            apps/desktop/dist-russian/*.zip
+          if-no-files-found: error
+          retention-days: 7
